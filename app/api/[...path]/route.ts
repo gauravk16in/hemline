@@ -368,6 +368,29 @@ async function handle(req: NextRequest) {
     });
     return NextResponse.json(value);
   } catch (error) {
+    // Keep internal failure details out of the HTTP response, but emit
+    // non-sensitive diagnostics for production investigation.
+    if (
+      !(error instanceof DomainError) &&
+      !(error instanceof z.ZodError) &&
+      !(error instanceof SyntaxError)
+    ) {
+      const details =
+        error !== null && typeof error === "object"
+          ? (error as { code?: unknown; cause?: unknown })
+          : null;
+      const cause =
+        details?.cause !== null && typeof details?.cause === "object"
+          ? (details.cause as { code?: unknown })
+          : null;
+      console.error("Hemline unexpected API failure", {
+        route: req.nextUrl.pathname,
+        method: req.method,
+        name: error instanceof Error ? error.name : typeof error,
+        code: typeof details?.code === "string" ? details.code : null,
+        causeCode: typeof cause?.code === "string" ? cause.code : null,
+      });
+    }
     const status =
       error instanceof DomainError
         ? error.status
