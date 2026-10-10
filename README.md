@@ -90,3 +90,5 @@ Vercel server environment: `DATABASE_URL` (dedicated hosted PostgreSQL / Supabas
 Start with an isolated hosted test database and provisioning disabled; then verify DB health, worker heartbeat, real provider/tracing and owned synthetic test flows before enabling public access. A deployed page alone does not establish agent readiness. Hosted Vercel, worker restart, public onboarding and browser-closure recovery are pending external verification until accounts/services are configured.
 
 Vercel Supabase integration: `POSTGRES_URL` is accepted when `DATABASE_URL` is unset. No database credentials need to be copied into Git or client code. Explicit `DATABASE_URL` takes precedence. Hosted integration variables also disable local test-reset endpoints.
+
+If hosted PostgreSQL reports `SELF_SIGNED_CERT_IN_CHAIN`, set `DATABASE_CA_CERT` to the PEM certificate downloaded from Supabase Database Settings. Hemline verifies both the certificate chain and database hostname; do not disable TLS verification.
