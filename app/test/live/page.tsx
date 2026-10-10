@@ -3,7 +3,7 @@ import { hash, isLocalDemo } from "@/lib/security";
 import type { Ward } from "@/lib/domain";
 export const dynamic = "force-dynamic";
 export default async function LiveTest() {
-  if (!isLocalDemo() || process.env.DATABASE_URL)
+  if (!isLocalDemo() || process.env.DATABASE_URL || process.env.POSTGRES_URL)
     return <p>Local development test only</p>;
   const b = await backend();
   const { rows } = await b.db.query<{ state: Ward }>(

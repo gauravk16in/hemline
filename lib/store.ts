@@ -41,9 +41,9 @@ async function open(): Promise<Backend> {
     `${process.cwd()}/supabase/migrations/001_hemline.sql`,
     "utf8",
   );
-  if (process.env.DATABASE_URL) {
+  if (process.env.DATABASE_URL || process.env.POSTGRES_URL) {
     const pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
+      connectionString: process.env.DATABASE_URL || process.env.POSTGRES_URL,
       max: process.env.VERCEL ? 2 : 5,
       connectionTimeoutMillis: 10000,
       idleTimeoutMillis: 20000,
@@ -250,9 +250,10 @@ export async function health() {
     database: true,
     // A valid long-running activation must not look like a dead scheduler.
     worker: recentHeartbeat || activeLease.rows[0].active,
-    storage: process.env.DATABASE_URL
-      ? "hosted PostgreSQL"
-      : "local embedded PostgreSQL",
+    storage:
+      process.env.DATABASE_URL || process.env.POSTGRES_URL
+        ? "hosted PostgreSQL"
+        : "local embedded PostgreSQL",
   };
 }
 export async function reserve(id: string, amount: number) {
@@ -383,6 +384,7 @@ export async function resetLocalTestWard(owner: string, sessionId: string) {
   if (
     !isLocalDemo() ||
     process.env.DATABASE_URL ||
+    process.env.POSTGRES_URL ||
     !/^[a-z0-9-]{1,80}$/.test(sessionId)
   )
     throw new DomainError(

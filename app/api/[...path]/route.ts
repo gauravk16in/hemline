@@ -118,7 +118,11 @@ async function handle(req: NextRequest) {
     if (!idem || idem.length > 100)
       throw new DomainError("IDEMPOTENCY", "Idempotency-Key required", 400);
     if (path[0] === "sandbox" && path[1] === "test") {
-      if (!isLocalDemo() || process.env.DATABASE_URL)
+      if (
+        !isLocalDemo() ||
+        process.env.DATABASE_URL ||
+        process.env.POSTGRES_URL
+      )
         throw new DomainError("TEST_ONLY", "Local development/test only", 403);
       const name = z
         .string()

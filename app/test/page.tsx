@@ -1,7 +1,7 @@
 import { isLocalDemo } from "@/lib/security";
 export const dynamic = "force-dynamic";
 export default function TestWard() {
-  if (!isLocalDemo() || process.env.DATABASE_URL)
+  if (!isLocalDemo() || process.env.DATABASE_URL || process.env.POSTGRES_URL)
     return <p>Local development/test only</p>;
   return (
     <main

@@ -6,6 +6,7 @@ nextEnv.loadEnvConfig(process.cwd());
 // Dedicated in-memory PostgreSQL, real provider and telemetry; never touch visitor state.
 Object.assign(process.env, { NODE_ENV: "test" });
 delete process.env.DATABASE_URL;
+delete process.env.POSTGRES_URL;
 const { createSandbox, mutate, readWard, claim, finish } =
   await import("../lib/store");
 const d = await import("../lib/domain");
