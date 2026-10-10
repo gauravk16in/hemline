@@ -7,6 +7,7 @@ import {
   readWard,
   health,
   admission,
+  budgetDiagnostics,
 } from "@/lib/store";
 import {
   session,
@@ -42,6 +43,8 @@ async function handle(req: NextRequest) {
       workerCheck(req);
       if (req.method !== "POST")
         throw new DomainError("METHOD", "POST required", 405);
+      if (path[1] === "budget")
+        return NextResponse.json(await budgetDiagnostics());
       return NextResponse.json(
         path[1] === "shutdown"
           ? (await shutdownTelemetry(), { ok: true })

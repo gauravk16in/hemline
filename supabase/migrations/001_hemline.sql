@@ -14,3 +14,6 @@ alter table hemline_heartbeat enable row level security;
 -- No client policies: all access is server-side through validated ownership.
 -- Sandbox aggregate is locked for each transaction. All embedded records/events/receipts
 -- commit together. Jobs and budget reservations are separate durable SQL records.
+
+-- Preserve historic charging flags; local development reservations are separate.
+alter table hemline_reservations add column if not exists public_charge boolean not null default true;

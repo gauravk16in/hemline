@@ -57,6 +57,12 @@ const cases = [
   "S19",
   "S20",
 ];
+const { isLocalDemo } = await import("../lib/security");
+const seededBudget = Number(
+  isLocalDemo()
+    ? process.env.LOCAL_SANDBOX_MODEL_BUDGET_USD || 1
+    : process.env.SANDBOX_MODEL_BUDGET_USD || 0.25,
+);
 const rows: unknown[] = [];
 for (const scenario of cases.filter(
   (c) =>
@@ -137,7 +143,7 @@ for (const scenario of cases.filter(
           "porter",
           t.id,
         );
-      else if (scenario === "S12") w.cost = 0.25;
+      else if (scenario === "S12") w.cost = seededBudget;
       if (scenario !== "S18" && !["S16", "S20", "S11"].includes(scenario))
         queueRun(
           w,
@@ -207,7 +213,7 @@ for (const scenario of cases.filter(
       cost: final.cost,
       estimatedModelCost: Math.max(
         0,
-        final.cost - (scenario === "S12" ? 0.25 : 0),
+        final.cost - (scenario === "S12" ? seededBudget : 0),
       ),
       events: final.events,
     });

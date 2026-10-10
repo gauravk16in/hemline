@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import {
   createSandbox,
@@ -105,7 +105,7 @@ describe("PostgreSQL transactions", () => {
     await settle(key, 0.02);
     await settle(key, 0);
     expect((await readWard(w.id, owner)).cost).toBeCloseTo(0.02);
-    await expect(reserve(w.id, 0.3)).rejects.toThrow("budget");
+    await expect(reserve(w.id, 1.1)).rejects.toThrow("budget");
   });
   it("can reclaim expired lease without allowing old token writes", async () => {
     const owner = randomUUID(),
@@ -170,4 +170,39 @@ it("retains rejection history after PostgreSQL serialization", async () => {
   );
 });
 
-it('rejects invalid cost reservations before opening a transaction',async()=>{await expect(reserve(randomUUID(),-1)).rejects.toThrow('Invalid cost');await expect(reserve(randomUUID(),Number.NaN)).rejects.toThrow('Invalid cost');});
+it("rejects invalid cost reservations before opening a transaction", async () => {
+  await expect(reserve(randomUUID(), -1)).rejects.toThrow("Invalid cost");
+  await expect(reserve(randomUUID(), Number.NaN)).rejects.toThrow(
+    "Invalid cost",
+  );
+});
+
+it("keeps public quota at 25 cents while allowing a private demo above it", async () => {
+  const owner = randomUUID();
+  const w = await createSandbox(owner);
+  await mutate(w.id, owner, (w) => {
+    w.cost = 0.217;
+  });
+  try {
+    vi.stubEnv("PUBLIC_DEMO_ENABLED", "true");
+    await expect(reserve(w.id, 0.0363)).rejects.toThrow(
+      "Sandbox model budget exhausted",
+    );
+    vi.stubEnv("PUBLIC_DEMO_ENABLED", "false");
+    const b = await backend();
+    const before = await b.db.query<{ public_used: string }>(
+      "select public_used from hemline_budget where id=1",
+    );
+    const reservation = await reserve(w.id, 0.0363);
+    expect((await readWard(w.id, owner)).cost).toBeCloseTo(0.2533);
+    await settle(reservation, 0.01);
+    const after = await b.db.query<{ public_used: string }>(
+      "select public_used from hemline_budget where id=1",
+    );
+    expect(Number(after.rows[0].public_used)).toBe(
+      Number(before.rows[0].public_used),
+    );
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});

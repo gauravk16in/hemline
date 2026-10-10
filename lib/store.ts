@@ -3,6 +3,7 @@ import { Pool, type PoolClient } from "pg";
 import { readFile, mkdir } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { seed, DomainError, type Ward } from "./domain";
+import { isLocalDemo } from "./security";
 interface DB {
   query<T extends Record<string, unknown>>(
     sql: string,
@@ -196,10 +197,16 @@ export async function health() {
 export async function reserve(id: string, amount: number) {
   if (!Number.isFinite(amount) || amount <= 0)
     throw new DomainError("BUDGET", "Invalid cost reservation", 400);
+  const local = isLocalDemo();
+  const sandboxLimit = Number(
+    local
+      ? process.env.LOCAL_SANDBOX_MODEL_BUDGET_USD || 1
+      : process.env.SANDBOX_MODEL_BUDGET_USD || 0.25,
+  );
   const limits = [
     Number(process.env.GLOBAL_MODEL_BUDGET_USD || 10),
     Number(process.env.PUBLIC_MODEL_BUDGET_USD || 5),
-    Number(process.env.SANDBOX_MODEL_BUDGET_USD || 0.25),
+    sandboxLimit,
   ];
   if (limits.some((limit) => !Number.isFinite(limit) || limit < 0))
     throw new DomainError("BUDGET_CONFIG", "Invalid budget configuration", 503);
@@ -214,27 +221,29 @@ export async function reserve(id: string, amount: number) {
     );
     const w = sandbox.rows[0]?.state;
     if (!w) throw new DomainError("NOT_FOUND", "Sandbox missing", 404);
-    if (
-      Number(global.rows[0].used) + amount >
-        Number(process.env.GLOBAL_MODEL_BUDGET_USD || 10) ||
-      Number(global.rows[0].public_used) + amount >
-        Number(process.env.PUBLIC_MODEL_BUDGET_USD || 5) ||
-      w.cost + amount > Number(process.env.SANDBOX_MODEL_BUDGET_USD || 0.25)
-    )
-      throw new DomainError("BUDGET", "Model budget exhausted", 429);
+    if (Number(global.rows[0].used) + amount > limits[0])
+      throw new DomainError("BUDGET", "Overall model budget exhausted", 429);
+    if (!local && Number(global.rows[0].public_used) + amount > limits[1])
+      throw new DomainError("BUDGET", "Public model budget exhausted", 429);
+    if (w.cost + amount > sandboxLimit)
+      throw new DomainError(
+        "BUDGET",
+        `Sandbox model budget exhausted ($${sandboxLimit.toFixed(2)} limit)`,
+        429,
+      );
     const key = randomUUID();
     w.cost += amount;
     await db.query(
-      "update hemline_budget set used=used+$1,public_used=public_used+$1 where id=1",
-      [amount],
+      "update hemline_budget set used=used+$1,public_used=public_used+$2 where id=1",
+      [amount, local ? 0 : amount],
     );
     await db.query("update hemline_sandboxes set state=$2 where id=$1", [
       id,
       JSON.stringify(w),
     ]);
     await db.query(
-      "insert into hemline_reservations(id,sandbox_id,amount) values($1,$2,$3)",
-      [key, id, amount],
+      "insert into hemline_reservations(id,sandbox_id,amount,public_charge) values($1,$2,$3,$4)",
+      [key, id, amount, !local],
     );
     return key;
   });
@@ -244,10 +253,12 @@ export async function settle(key: string, actual: number) {
   await b.transaction(async (db) => {
     await db.query("select id from hemline_budget where id=1 for update");
     const r = (
-      await db.query<{ sandbox_id: string; amount: string; status: string }>(
-        "select * from hemline_reservations where id=$1 for update",
-        [key],
-      )
+      await db.query<{
+        sandbox_id: string;
+        amount: string;
+        status: string;
+        public_charge: boolean;
+      }>("select * from hemline_reservations where id=$1 for update", [key])
     ).rows[0];
     if (!r || r.status !== "reserved") return;
     const w = (
@@ -263,8 +274,8 @@ export async function settle(key: string, actual: number) {
       JSON.stringify(w),
     ]);
     await db.query(
-      "update hemline_budget set used=used-$1,public_used=public_used-$1 where id=1",
-      [delta],
+      "update hemline_budget set used=used-$1,public_used=public_used-$2 where id=1",
+      [delta, r.public_charge ? delta : 0],
     );
     await db.query(
       "update hemline_reservations set status='settled',actual=$2 where id=$1",
@@ -294,4 +305,15 @@ export async function admission(ipHash: string) {
       JSON.stringify(starts),
     ]);
   });
+}
+
+export async function budgetDiagnostics() {
+  const b = await backend();
+  const global = await b.db.query(
+    "select used, public_used from hemline_budget where id=1",
+  );
+  const sandboxes = await b.db.query(
+    "select id, state->>'cost' as reserved_cost from hemline_sandboxes order by updated_at desc limit 5",
+  );
+  return { global: global.rows[0], sandboxes: sandboxes.rows };
 }

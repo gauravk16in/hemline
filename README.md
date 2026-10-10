@@ -54,3 +54,5 @@ Supplemental specifications, development history and generated trace/test eviden
 One Render service supervises `next start` and the worker. Supabase supplies hosted PostgreSQL and anonymous authentication. Review `render.yaml` and operations before provisioning. Public creation stays disabled until authentication/CAPTCHA and database access are configured.
 
 MIT license. All seeded patients, staff, and hospital responses are fictional.
+
+Private local demos default to a $1 per-sandbox model allowance (`LOCAL_SANDBOX_MODEL_BUDGET_USD`); public sandboxes retain the $0.25 cap. Both remain subject to the $10 overall model budget. Budget reservations and usage persist across restarts. A transfer paused by a budget refusal can be resumed by switching to Coordinator and selecting Resume coordination after the limit is corrected.
