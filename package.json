@@ -1,0 +1,47 @@
+{
+  "name": "hemline",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --hostname 127.0.0.1",
+    "worker:dev": "tsx scripts/worker.ts",
+    "build": "next build && esbuild scripts/worker.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/worker.mjs",
+    "start": "node scripts/supervise.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:integration": "vitest run tests/integration.test.ts",
+    "test:e2e": "playwright test",
+    "eval": "tsx scripts/evaluate.ts",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "provider:smoke": "tsx scripts/smoke.ts"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "^0.3.14",
+    "@supabase/supabase-js": "^2.99.0",
+    "js-tiktoken": "^1.0.21",
+    "lucide-react": "^0.577.0",
+    "neatlogs": "1.1.28",
+    "next": "16.4.0",
+    "openai": "^6.34.0",
+    "pg": "^8.20.0",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2",
+    "@types/node": "^22.19.0",
+    "@types/pg": "^8.18.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "esbuild": "^0.27.3",
+    "eslint": "^9.39.0",
+    "eslint-config-next": "16.4.0",
+    "prettier": "^3.9.10",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  },
+  "type": "module"
+}

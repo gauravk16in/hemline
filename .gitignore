@@ -1,0 +1,22 @@
+node_modules/
+.next/
+dist/
+.env*
+!.env.example
+.data/
+playwright-report/
+test-results/
+*.tsbuildinfo
+
+# Local documentation (publish only the root README).
+*.md
+!/README.md
+
+# Generated verification artifacts and temporary files.
+evidence/
+coverage/
+*.log
+*.tmp
+.DS_Store
+.vscode/
+.idea/
