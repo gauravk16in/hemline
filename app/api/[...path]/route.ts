@@ -35,9 +35,11 @@ import {
   DomainError,
   findTransfer,
 } from "@/lib/domain";
-import { fixtureMode, shutdownTelemetry } from "@/lib/agent";
+import { fixtureMode, shutdownTelemetry, drainTelemetry } from "@/lib/agent";
 import { tick } from "@/lib/worker";
 export const runtime = "nodejs";
+// Vercel allows the bounded 90-second agent activation plus database/export overhead.
+export const maxDuration = 180;
 export const dynamic = "force-dynamic";
 const params = z.object({}).passthrough();
 async function handle(req: NextRequest) {
@@ -391,5 +393,16 @@ async function handle(req: NextRequest) {
     );
   }
 }
-export const GET = handle;
-export const POST = handle;
+async function route(req: NextRequest) {
+  try {
+    return await handle(req);
+  } finally {
+    // Serverless instances can freeze after the response; export ended spans first.
+    if (process.env.VERCEL && req.method === "POST")
+      await drainTelemetry().catch(() =>
+        console.error("Hemline telemetry flush failed"),
+      );
+  }
+}
+export const GET = route;
+export const POST = route;

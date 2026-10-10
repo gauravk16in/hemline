@@ -44,7 +44,9 @@ async function open(): Promise<Backend> {
   if (process.env.DATABASE_URL) {
     const pool = new Pool({
       connectionString: process.env.DATABASE_URL,
-      max: 5,
+      max: process.env.VERCEL ? 2 : 5,
+      connectionTimeoutMillis: 10000,
+      idleTimeoutMillis: 20000,
     });
     await pool.query(sql);
     return {
@@ -238,11 +240,16 @@ export async function health() {
   const result = await b.db.query<{ at: string }>(
     "select at from hemline_heartbeat where id=1",
   );
+  const recentHeartbeat = result.rows[0]
+    ? Date.now() - new Date(result.rows[0].at).getTime() < 30000
+    : false;
+  const activeLease = await b.db.query<{ active: boolean }>(
+    "select exists(select 1 from hemline_jobs where status='running' and lease_until>now()) as active",
+  );
   return {
     database: true,
-    worker: result.rows[0]
-      ? Date.now() - new Date(result.rows[0].at).getTime() < 30000
-      : false,
+    // A valid long-running activation must not look like a dead scheduler.
+    worker: recentHeartbeat || activeLease.rows[0].active,
     storage: process.env.DATABASE_URL
       ? "hosted PostgreSQL"
       : "local embedded PostgreSQL",

@@ -37,3 +37,6 @@ next-env.d.ts
 *.pem
 *.key
 Thumbs.db
+
+# Vercel local linkage and downloaded environment files.
+.vercel/

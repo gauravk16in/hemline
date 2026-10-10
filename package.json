@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev --hostname 127.0.0.1",
     "worker:dev": "tsx scripts/worker.ts",
-    "build": "next build && esbuild scripts/worker.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/worker.mjs",
+    "build": "npm run build:web && npm run build:worker",
     "start": "node scripts/supervise.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
@@ -14,7 +14,10 @@
     "test:e2e": "playwright test",
     "eval": "tsx scripts/evaluate.ts",
     "db:migrate": "tsx scripts/migrate.ts",
-    "provider:smoke": "tsx scripts/smoke.ts"
+    "provider:smoke": "tsx scripts/smoke.ts",
+    "build:web": "next build",
+    "build:worker": "esbuild scripts/worker.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/worker.mjs",
+    "worker:start": "node dist/worker.mjs"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.3.14",
@@ -43,5 +46,8 @@
     "typescript": "^5.9.3",
     "vitest": "^3.2.4"
   },
-  "type": "module"
+  "type": "module",
+  "engines": {
+    "node": "22.x"
+  }
 }

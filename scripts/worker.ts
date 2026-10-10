@@ -11,13 +11,23 @@ const origin =
   process.env.INTERNAL_BASE_URL ||
   process.env.APP_BASE_URL ||
   "http://127.0.0.1:3000";
+if (
+  process.env.NODE_ENV === "production" &&
+  (!process.env.WORKER_SECRET || !process.env.APP_BASE_URL)
+) {
+  throw new Error("Production worker requires WORKER_SECRET and APP_BASE_URL");
+}
+const workerHeaders: Record<string, string> = {
+  authorization: `Bearer ${process.env.WORKER_SECRET || "local-worker"}`,
+};
+if (process.env.VERCEL_AUTOMATION_BYPASS_SECRET)
+  workerHeaders["x-vercel-protection-bypass"] =
+    process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
 while (!stopping) {
   try {
     const response = await fetch(`${origin}/api/internal/tick`, {
       method: "POST",
-      headers: {
-        authorization: `Bearer ${process.env.WORKER_SECRET || "local-worker"}`,
-      },
+      headers: workerHeaders,
       signal: AbortSignal.timeout(95000),
     });
     if (!response.ok) console.error("Worker tick", response.status);
@@ -28,9 +38,11 @@ while (!stopping) {
   }
   await new Promise((resolve) => setTimeout(resolve, 1000));
 }
-await fetch(`${origin}/api/internal/shutdown`, {
-  method: "POST",
-  headers: {
-    authorization: `Bearer ${process.env.WORKER_SECRET || "local-worker"}`,
-  },
-}).catch(() => {});
+// A remote scheduler does not own the lifetime of Vercel function instances.
+if (process.env.REMOTE_WORKER !== "true")
+  await fetch(`${origin}/api/internal/shutdown`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${process.env.WORKER_SECRET || "local-worker"}`,
+    },
+  }).catch(() => {});

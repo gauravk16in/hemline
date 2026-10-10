@@ -1,0 +1,23 @@
+# Worker companion for the GitHub-imported Vercel web application.
+# Import this blueprint only after the Vercel production URL exists.
+services:
+  - type: worker
+    name: hemline-worker
+    runtime: node
+    plan: starter
+    buildCommand: npm ci && npm run build:worker
+    startCommand: npm run worker:start
+    envVars:
+      - key: NODE_VERSION
+        value: 22.23.2
+      - key: NODE_ENV
+        value: production
+      - key: REMOTE_WORKER
+        value: "true"
+      - key: APP_BASE_URL
+        sync: false
+      # Set the SAME secret in the Vercel web project.
+      - key: WORKER_SECRET
+        sync: false
+      - key: VERCEL_AUTOMATION_BYPASS_SECRET
+        sync: false
