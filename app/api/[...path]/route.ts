@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import {
   mutate,
   createSandbox,
+  resetLocalTestWard,
   readWard,
   health,
   admission,
@@ -23,9 +24,12 @@ import {
   commandSchema,
   command,
   confirmProposal,
+  confirmReplacement,
+  reconcileAcceptance,
   addMessage,
   advance,
   destinationDelay,
+  destinationFor,
   queueRun,
   event,
   DomainError,
@@ -56,6 +60,7 @@ async function handle(req: NextRequest) {
       return NextResponse.json(
         {
           ...h,
+          environment: process.env.NODE_ENV,
           model: fixtureMode()
             ? "local fixture adapter"
             : process.env.OPENAI_API_KEY
@@ -94,10 +99,42 @@ async function handle(req: NextRequest) {
     const text = await req.text();
     if (text.length > 16000)
       throw new DomainError("SIZE", "Request too large", 413);
-    const body = params.parse(JSON.parse(text || "{}"));
-    const idem = req.headers.get("idempotency-key");
+    const testForm =
+      path[0] === "sandbox" &&
+      path[1] === "test" &&
+      req.headers
+        .get("content-type")
+        ?.includes("application/x-www-form-urlencoded");
+    const body = params.parse(
+      testForm
+        ? Object.fromEntries(new URLSearchParams(text))
+        : JSON.parse(text || "{}"),
+    );
+    const idem =
+      req.headers.get("idempotency-key") ||
+      (testForm ? crypto.randomUUID() : null);
     if (!idem || idem.length > 100)
       throw new DomainError("IDEMPOTENCY", "Idempotency-Key required", 400);
+    if (path[0] === "sandbox" && path[1] === "test") {
+      if (!isLocalDemo() || process.env.DATABASE_URL)
+        throw new DomainError("TEST_ONLY", "Local development/test only", 403);
+      const name = z
+        .string()
+        .regex(/^[a-z0-9-]{1,80}$/)
+        .parse(body.sessionId);
+      const owner = `test-${hash(name)}`;
+      const w = await resetLocalTestWard(owner, name);
+      const response = testForm
+        ? NextResponse.redirect(new URL("/", req.url), 303)
+        : NextResponse.json(w);
+      response.cookies.set("hemline_session", signSession(owner, w.id), {
+        httpOnly: true,
+        sameSite: "strict",
+        path: "/",
+        maxAge: 7200,
+      });
+      return response;
+    }
     if (path[0] === "sandbox" && path.length === 1) {
       let existing;
       try {
@@ -188,18 +225,35 @@ async function handle(req: NextRequest) {
           .strict()
           .parse(body);
         result = addMessage(w, b.text, w.role, b.transferId || null);
+      } else if (path[0] === "replacements" && path[2] === "confirm") {
+        result = confirmReplacement(w, path[1], w.role);
       } else if (path[0] === "proposals" && path[2] === "confirm") {
         result = confirmProposal(w, path[1], w.role);
       } else if (path[0] === "transfers" && path[2] === "commands") {
-        result = {
-          id: command(w, path[1], commandSchema.parse(body), w.role).id,
-        };
-        queueRun(
-          w,
-          "Staff command committed; inspect current state and choose next action.",
-          w.role,
-          path[1],
-        );
+        const c = commandSchema.parse(body);
+        result =
+          c.type === "ACCEPT"
+            ? reconcileAcceptance(
+                w,
+                path[1],
+                z.string().parse(c.payload.offerId),
+                c.expectedRevision,
+                w.role,
+              )
+            : { id: command(w, path[1], c, w.role).id };
+        const t = findTransfer(w, path[1]);
+        // Deterministic staff progress does not need an LLM activation. Dispatch only at a ready boundary.
+        if (
+          t.phase === "READY" &&
+          t.control === "ACTIVE" &&
+          (!t.offer || !["pending", "accepted"].includes(t.offer.status))
+        )
+          queueRun(
+            w,
+            "Readiness confirmed; choose eligible porter and offer transport.",
+            w.role,
+            t.id,
+          );
       } else if (path[0] === "destinations" && path[2] === "commands") {
         const b = z
           .object({
@@ -217,18 +271,30 @@ async function handle(req: NextRequest) {
           .parse(body);
         if (w.role !== "receiving")
           throw new DomainError("FORBIDDEN", "Receiving staff required", 403);
-        if (b.expectedRevision !== w.destination.revision)
+        if (!["radiology", "ct"].includes(path[1]))
+          throw new DomainError("NOT_FOUND", "Destination missing", 404);
+        const name = path[1] === "ct" ? "CT" : "Radiology";
+        const destination = destinationFor(w, name);
+        if (b.expectedRevision !== destination.revision)
           throw new DomainError("STALE_REVISION", "Destination changed");
         if (b.type === "SET_DESTINATION_AVAILABILITY")
-          destinationDelay(w, b.payload.delayMinutes || 0, w.role);
+          destinationDelay(
+            w,
+            b.payload.delayMinutes || 0,
+            w.role,
+            "visitor",
+            name,
+          );
         else {
           if (!b.payload.windowEnd || b.payload.windowEnd < w.now)
             throw new DomainError("WINDOW", "Window must be in the future");
-          w.destination.windowEnd = b.payload.windowEnd;
+          destination.windowEnd = b.payload.windowEnd;
           destinationDelay(
             w,
-            Math.max(0, (w.destination.availableAfter - w.now) / 60000),
+            Math.max(0, (destination.availableAfter - w.now) / 60000),
             w.role,
+            "visitor",
+            name,
           );
         }
       } else if (path[0] === "scenarios") {

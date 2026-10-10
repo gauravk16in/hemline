@@ -18,6 +18,12 @@ Open http://127.0.0.1:3000. No credentials are required for the **explicit local
 
 Try Bed 18 first. Bed 4 intentionally has a stale reference in another patient's bed history. Manual exploration begins paused. Choose guided playback before confirming a request to activate labelled simulated staff replies. A visitor still confirms the original nurse request and material rescheduling.
 
+## Ward interface
+
+The ward fills the viewport. Patient bays are interactive overlays on the ward scene asset from the user's previous [project](https://github.com/Abhinav-Prabhakar/Warden), reused at the user's request. Hemline keeps its own encounters, state machine, agent tools, database and telemetry. Selecting a bed opens a contextual staff-action panel; history opens from the left rail. The clock menu contains playback, scenario and usage controls. No clinical measurements or medication workflows are imported. Route positions illustrate recorded workflow stages, not tracked staff locations.
+
+The voice dock supports browser dictation with transcript review and optional spoken recorded summaries. Mobile supports horizontal ward exploration and contextual panels; unsupported browsers retain text input. Routes are static; no looping movement implies tracked staff. The attention queue, sync age, readiness evidence and receiving acknowledgement show recorded operational facts. Pickup deadlines are labelled as simulation time and ETA is explicitly unavailable. Live microphone permission and recognition accuracy remain unverified.
+
 ## Implementation status
 
 Implemented: web board, role actions, browser dictation with review, durable PostgreSQL aggregate transactions, offers, destination delays, interpretation proposals, guided staff, controllable clock, isolation, quotas, OpenAI-compatible Claude/neatlogs adapters, worker supervision and Render blueprint.
@@ -56,3 +62,19 @@ One Render service supervises `next start` and the worker. Supabase supplies hos
 MIT license. All seeded patients, staff, and hospital responses are fictional.
 
 Private local demos default to a $1 per-sandbox model allowance (`LOCAL_SANDBOX_MODEL_BUDGET_USD`); public sandboxes retain the $0.25 cap. Both remain subject to the $10 overall model budget. Budget reservations and usage persist across restarts. A transfer paused by a budget refusal can be resumed by switching to Coordinator and selecting Resume coordination after the limit is corrected.
+
+## Interrupted transfer validation
+
+Bed 21 → CT is supported alongside Bed 18 → Radiology. A nurse interruption pauses dispatch and produces a replacement proposal. Nurse confirmation cancels the old transfer and creates a new draft with independent readiness. An accepted assignment requires porter cancellation acknowledgement first; collected patients require staff intervention. Late acceptance is rejected, audited and shown in the simulated porter inbox. Deterministic collection/arrival/handoff actions do not consume additional model activations.
+
+Run `npx tsx scripts/test-interrupted-transfer.ts` with provider and neatlogs credentials to reproduce the isolated in-memory PostgreSQL test. It uses real model calls and trace export; staff confirmations are explicitly scripted. On 2026-10-10 the complete scenario passed with Claude Sonnet 4.6, five activations, estimated cost $0.2202123, trace `b1826c145f143a7d0f4667bdf52a5332`. Authenticated neatlogs readback succeeded. Local evidence is ignored by Git. The preserved baseline showed the old guard already rejected stale acceptance; missing replacement support and rejection audit were the improvements. This targeted run does not establish the 48-case release gate or deployed restart verification.
+
+Prompt v5 compacts model context and records tool arguments. The latest isolated interruption rerun passed at estimated $0.1779987 with trace `065487d6cb5a4d635721a4e487fc6bf7`. 53 deterministic/integration checks passed after the fixes. Broader guided browser findings and preserved failures are recorded in docs/testing.md; a targeted pass does not imply the release suite is complete.
+
+Final local validation (2026-10-11): prompt v6 interrupted-transfer scenario passed with authenticated neatlogs export; 55 domain/integration tests and the full six-test browser suite passed, alongside typecheck, lint and build. Guided rejection recovery and receiving delay both passed with the live provider. Evidence: `evidence/interruption-validation.md` (local, ignored by Git). Public provisioning and the 48-case release evaluation remain pending; latest private guided usage exceeds the public $0.25 cap.
+
+### Verified stale-acceptance HTTP scenario
+
+`npx tsx scripts/test-stale-http.ts` first verifies localhost is development with local embedded PostgreSQL and real provider/tracing configured, then resets only the named synthetic test ward. It preserves other wards and global spending. The reset endpoint is disabled for production, public provisioning, and hosted databases. The script exercises authenticated HTTP requests, waits for the real worker/LLM, and saves assertions to `evidence/stale-http-result.json`.
+
+Watch `/test/live` in the local browser while it runs. This read-only development view shows test aliases T-001/T-002, actual UUIDs, statuses and events. The confirmed run persisted all 26 domain events plus real model/tool calls in neatlogs session `hemline-stale-acceptance-test-001` (22 distinct traces, 78 spans, zero trace errors). Samir's delayed acceptance was rejected after cancellation; Leena's replacement completed only after receiving-team handoff. `COMPLETED` is the domain's handoff-complete status. The labelled stale-availability fixture keeps Samir unavailable for the replacement. Staff and patient data remain synthetic; API, persistence, model and telemetry calls are real.

@@ -43,15 +43,39 @@ export interface Offer {
   expires: number;
   status: "pending" | "accepted" | "rejected" | "expired" | "cancelled";
 }
+export type DestinationName = "Radiology" | "CT";
+export interface Replacement {
+  id: string;
+  messageId: string;
+  actor: Role;
+  oldTransferId: string;
+  patientId: string;
+  destinationName: DestinationName;
+  appointment: number;
+  revision: number;
+  status: "pending" | "confirmed";
+  newTransferId: string | null;
+}
 export interface Transfer {
   id: string;
   patientId: string;
+  destinationName?: DestinationName;
   revision: number;
   destinationRevision: number;
   phase: Phase;
   control: Control;
   requirements: string[];
   confirmations: Record<string, boolean>;
+  readinessEvidence?: Record<
+    string,
+    { actor: Actor; source: string; at: number; revision: number }
+  >;
+  handoffEvidence?: {
+    actor: Actor;
+    source: string;
+    at: number;
+    revision: number;
+  };
   appointment: number;
   offer: Offer | null;
   offers: Offer[];
@@ -95,6 +119,7 @@ export interface Message {
   id: string;
   role: Role;
   text: string;
+  offerId?: string;
   transferId: string | null;
   revision: number | null;
   source: "visitor" | "simulated staff";
@@ -103,6 +128,7 @@ export interface Run {
   id: string;
   status: "pending" | "running" | "done" | "error";
   text: string;
+  offerId?: string;
   transferId: string | null;
   role: Role;
   messageId: string | null;
@@ -120,6 +146,7 @@ export interface Scheduled {
   revision: number;
 }
 export interface Ward {
+  testSessionId?: string;
   id: string;
   role: Role;
   mode: "guided" | "manual";
@@ -129,6 +156,19 @@ export interface Ward {
   expiresAt: number;
   patients: Patient[];
   staff: Staff[];
+  ctDestination?: {
+    revision: number;
+    availableAfter: number;
+    windowEnd: number;
+  };
+  replacements?: Replacement[];
+  porterNotifications?: {
+    porterId: string;
+    transferId: string;
+    offerId: string;
+    reason: string;
+    at: number;
+  }[];
   destination: { revision: number; availableAfter: number; windowEnd: number };
   transfers: Transfer[];
   events: Event[];
@@ -190,6 +230,7 @@ export function seed(id = randomUUID()): Ward {
       { id: "enc-02", name: "Ashna Patel", bed: 8, previousBed: 4 },
       { id: "enc-03", name: "Dev Mehta", bed: 12, previousBed: null },
       { id: "enc-04", name: "Mira Rao", bed: 18, previousBed: null },
+      { id: "enc-05", name: "Nikhil Shah", bed: 21, previousBed: null },
     ],
     staff: [
       {
@@ -251,13 +292,22 @@ export function findTransfer(w: Ward, id: string) {
   if (!t) throw new DomainError("NOT_FOUND", "Transfer not found", 404);
   return t;
 }
+export function destinationFor(w: Ward, name: DestinationName = "Radiology") {
+  if (name === "Radiology") return w.destination;
+  return (w.ctDestination ||= {
+    revision: 1,
+    availableAfter: w.now,
+    windowEnd: w.now + 7200000,
+  });
+}
 export function ready(w: Ward, t: Transfer) {
+  const destination = destinationFor(w, t.destinationName);
   return (
     t.phase !== "DRAFT" &&
     t.requirements.every((r) => t.confirmations[r]) &&
-    t.destinationRevision === w.destination.revision &&
-    t.appointment >= w.destination.availableAfter &&
-    t.appointment <= w.destination.windowEnd
+    t.destinationRevision === destination.revision &&
+    t.appointment >= destination.availableAfter &&
+    t.appointment <= destination.windowEnd
   );
 }
 export function eligible(w: Ward, t: Transfer) {
@@ -300,7 +350,24 @@ export function queueRun(
   w.runs.push(r);
   return r;
 }
-export function createDraft(w: Ward, patientId: string, appointment: number) {
+export function createDraft(
+  w: Ward,
+  patientId: string,
+  appointment: number,
+  destinationName: DestinationName = "Radiology",
+) {
+  if (
+    w.transfers.some(
+      (t) =>
+        t.patientId === patientId &&
+        t.control !== "CANCELLED" &&
+        t.phase !== "COMPLETED",
+    )
+  )
+    throw new DomainError(
+      "DUPLICATE_TRANSFER",
+      "An active transfer already exists for this encounter",
+    );
   if (w.transfers.length >= 5)
     throw new DomainError("QUOTA", "Five transfers per sandbox", 429);
   if (!w.patients.some((p) => p.id === patientId))
@@ -317,8 +384,9 @@ export function createDraft(w: Ward, patientId: string, appointment: number) {
   const t: Transfer = {
     id: randomUUID(),
     patientId,
+    destinationName,
     revision: 1,
-    destinationRevision: w.destination.revision,
+    destinationRevision: destinationFor(w, destinationName).revision,
     phase: "DRAFT",
     control: "ACTIVE",
     requirements: ["nurse", "receiving", "escort"],
@@ -411,7 +479,7 @@ export function command(
         t,
         "receiving",
         "MESSAGE",
-        "Radiology is ready to receive the patient.",
+        `${t.destinationName || "Radiology"} is ready to receive the patient.`,
         {},
         5,
       );
@@ -443,11 +511,23 @@ export function command(
       const requirement = z
         .enum(["nurse", "receiving", "escort", "oxygen"])
         .parse(c.payload.requirement);
-      requireRole(
-        actor,
-        requirement === "receiving" ? ["receiving"] : ["nurse"],
-      );
+      const requiredRole = requirement === "receiving" ? "receiving" : "nurse";
+      if (actor !== requiredRole)
+        throw new DomainError(
+          "FORBIDDEN",
+          `${actor} cannot confirm ${requirement} readiness. ${requiredRole} is required; use the requirement supported by the source role.`,
+          403,
+        );
       t.confirmations[requirement] = c.type === "CONFIRM_READINESS";
+      t.readinessEvidence ||= {};
+      if (c.type === "CONFIRM_READINESS")
+        t.readinessEvidence[requirement] = {
+          actor,
+          source,
+          at: w.now,
+          revision: t.revision,
+        };
+      else delete t.readinessEvidence[requirement];
       if (c.type === "WITHDRAW_READINESS") {
         t.control = ["COLLECTED", "ARRIVED"].includes(t.phase)
           ? "ESCALATED"
@@ -504,8 +584,12 @@ export function command(
     case "ACCEPT":
     case "REJECT":
       requireRole(actor, ["porter"]);
+      if (o && c.payload.offerId !== o.id)
+        throw new DomainError(
+          "OFFER_TARGET",
+          `Offer response must use offer ID ${o.id}, not transfer ID ${t.id}.`,
+        );
       if (
-        c.payload.offerId !== o?.id ||
         !o ||
         o.status !== "pending" ||
         o.revision !== t.revision ||
@@ -541,7 +625,15 @@ export function command(
         );
       t.phase = "COLLECTED";
       t.nextAction = "Record arrival at radiology";
-      schedule(w, t, "porter", "ARRIVE", "Arrived at radiology.", {}, 5);
+      schedule(
+        w,
+        t,
+        "porter",
+        "ARRIVE",
+        `Arrived at ${t.destinationName || "Radiology"}.`,
+        {},
+        5,
+      );
       break;
     case "ARRIVE":
       requireRole(actor, ["porter"]);
@@ -556,6 +648,7 @@ export function command(
       requireRole(actor, ["receiving"]);
       if (t.phase !== "ARRIVED" || t.control !== "ACTIVE")
         throw new DomainError("STATE", "Arrival must be recorded first");
+      t.handoffEvidence = { actor, source, at: w.now, revision: t.revision };
       t.phase = "COMPLETED";
       t.nextAction = "Verified handoff complete";
       break;
@@ -600,14 +693,19 @@ export function command(
       {
         const time = z.number().finite().parse(c.payload.appointment);
         if (
-          time < Math.max(w.destination.availableAfter, w.now + 600000) ||
-          time > w.destination.windowEnd
+          time <
+            Math.max(
+              destinationFor(w, t.destinationName).availableAfter,
+              w.now + 600000,
+            ) ||
+          time > destinationFor(w, t.destinationName).windowEnd
         )
           throw new DomainError("WINDOW", "No feasible receiving window");
         t.appointment = time;
-        t.destinationRevision = w.destination.revision;
+        t.destinationRevision = destinationFor(w, t.destinationName).revision;
         t.revision++;
         t.confirmations = {};
+        t.readinessEvidence = {};
         t.offer = null;
         t.phase = "CONFIRMED";
         t.control = "ACTIVE";
@@ -647,7 +745,7 @@ export function command(
           t,
           "receiving",
           "MESSAGE",
-          "Radiology is ready to receive the patient.",
+          `${t.destinationName || "Radiology"} is ready to receive the patient.`,
           {},
           5,
         );
@@ -681,6 +779,11 @@ export function offer(w: Ward, id: string, revision: number, porterId: string) {
   const t = findTransfer(w, id);
   if (revision !== t.revision)
     throw new DomainError("STALE_REVISION", "Transfer revision changed");
+  if (t.offer && ["pending", "accepted"].includes(t.offer.status))
+    throw new DomainError(
+      "UNRESOLVED_OFFER",
+      `Offer ${t.offer.id} is ${t.offer.status}; reconcile it before offering another porter. Readiness has not been withdrawn.`,
+    );
   if (
     t.control !== "ACTIVE" ||
     !ready(w, t) ||
@@ -729,14 +832,19 @@ export function destinationDelay(
   minutes: number,
   actor: Actor,
   source = "visitor",
+  destinationName: DestinationName = "Radiology",
 ) {
   requireRole(actor, ["receiving"]);
   if (!Number.isFinite(minutes) || minutes < 0 || minutes > 240)
     throw new DomainError("VALIDATION", "Delay must be 0–240 minutes", 400);
-  w.destination.revision++;
-  w.destination.availableAfter = w.now + minutes * 60000;
+  const destination = destinationFor(w, destinationName);
+  destination.revision++;
+  destination.availableAfter = w.now + minutes * 60000;
   for (const t of w.transfers.filter(
-    (t) => t.phase !== "COMPLETED" && t.control !== "CANCELLED",
+    (t) =>
+      (t.destinationName || "Radiology") === destinationName &&
+      t.phase !== "COMPLETED" &&
+      t.control !== "CANCELLED",
   )) {
     if (["COLLECTED", "ARRIVED"].includes(t.phase)) {
       t.control = "ESCALATED";
@@ -759,7 +867,7 @@ export function destinationDelay(
   }
   event(
     w,
-    `Radiology available after ${minutes} minutes`,
+    `${destinationName} available after ${minutes} minutes`,
     "receiving",
     null,
     source,
@@ -800,7 +908,7 @@ export function propose(w: Ward, messageId: string, u: Update) {
   );
   return p;
 }
-export function confirmProposal(w: Ward, id: string, actor: Role) {
+export function confirmProposal(w: Ward, id: string, actor: Role, wake = true) {
   const p = w.proposals.find((p) => p.id === id);
   if (!p) throw new DomainError("NOT_FOUND", "Proposal missing", 404);
   if (p.status === "confirmed") return p;
@@ -819,9 +927,25 @@ export function confirmProposal(w: Ward, id: string, actor: Role) {
     );
   const u = p.update;
   if (u.kind === "destination_delay") {
-    destinationDelay(w, u.delayMinutes ?? 0, actor, p.source);
+    const name = (
+      t && u.targetId === t.id ? t.destinationName || "Radiology" : u.targetId
+    ).toLowerCase();
+    if (name !== "radiology" && name !== "ct")
+      throw new DomainError("DESTINATION", "Specify Radiology or CT");
+    destinationDelay(
+      w,
+      u.delayMinutes ?? 0,
+      actor,
+      p.source,
+      name === "ct" ? "CT" : "Radiology",
+    );
   } else if (u.kind === "availability") {
-    requireRole(actor, ["porter"]);
+    if (actor !== "porter")
+      throw new DomainError(
+        "FORBIDDEN",
+        "Availability updates are for porters only. Receiving-team readiness must use kind=readiness, requirement=receiving, and the transfer ID.",
+        403,
+      );
     const s = w.staff.find((s) => s.id === u.targetId);
     if (!s) throw new DomainError("NOT_FOUND", "Porter missing", 404);
     s.available = u.decision === true;
@@ -870,14 +994,16 @@ export function confirmProposal(w: Ward, id: string, actor: Role) {
         {
           type: "CONFIRM_RESCHEDULE",
           expectedRevision: p.revision,
-          payload: { appointment: w.destination.availableAfter },
+          payload: {
+            appointment: destinationFor(w, t.destinationName).availableAfter,
+          },
         },
         actor,
         p.source,
       );
   }
   p.status = "confirmed";
-  if (t)
+  if (wake && t && t.phase === "READY" && t.control === "ACTIVE")
     queueRun(
       w,
       "Staff update confirmed; inspect state and choose next action.",
@@ -892,6 +1018,7 @@ export function addMessage(
   role: Role,
   transferId: string | null,
   source: "visitor" | "simulated staff" = "visitor",
+  offerId?: string,
 ) {
   if (source === "visitor") {
     const now = Date.now();
@@ -909,8 +1036,31 @@ export function addMessage(
     transferId,
     revision: t?.revision || null,
     source,
+    offerId,
   };
   w.messages.push(m);
+  if (
+    t &&
+    role === "nurse" &&
+    /\b(cancel|stop|wait)\b/i.test(text) &&
+    !["COLLECTED", "ARRIVED", "COMPLETED"].includes(t.phase) &&
+    t.control !== "CANCELLED"
+  ) {
+    t.control = "PAUSED";
+    t.owner = "nurse";
+    t.nextAction = "Nurse interruption under review; dispatch paused";
+    event(w, t.nextAction, "nurse", t, source);
+  }
+  if (
+    t &&
+    role === "porter" &&
+    /\baccept(?:ed)?\b/i.test(text) &&
+    (t.control === "CANCELLED" || (t.offer && t.offer.status !== "pending"))
+  ) {
+    if (t.offer)
+      reconcileAcceptance(w, t.id, t.offer.id, t.revision, role, source);
+    return m;
+  }
   queueRun(w, text, role, transferId, m.id);
   event(w, text, role, t, source);
   return m;
@@ -957,7 +1107,14 @@ export function advance(w: Ward, seconds: number) {
     }
     try {
       if (s.type === "MESSAGE")
-        addMessage(w, s.text, s.role, t.id, "simulated staff");
+        addMessage(
+          w,
+          s.text,
+          s.role,
+          t.id,
+          "simulated staff",
+          typeof s.payload.offerId === "string" ? s.payload.offerId : undefined,
+        );
       else {
         command(
           w,
@@ -970,7 +1127,8 @@ export function advance(w: Ward, seconds: number) {
           s.role,
           "simulated staff",
         );
-        queueRun(w, "Staff action completed; check next step.", s.role, t.id);
+        if (t.phase === "READY" && t.control === "ACTIVE")
+          queueRun(w, "Readiness confirmed; dispatch transport.", s.role, t.id);
       }
     } catch (error) {
       event(
@@ -982,4 +1140,167 @@ export function advance(w: Ward, seconds: number) {
       );
     }
   }
+}
+
+export function reconcileAcceptance(
+  w: Ward,
+  id: string,
+  offerId: string,
+  revision: number,
+  actor: Role,
+  source = "visitor",
+) {
+  requireRole(actor, ["porter"]);
+  const t = findTransfer(w, id),
+    o = t.offers.find((o) => o.id === offerId);
+  const valid =
+    t.control === "ACTIVE" &&
+    t.offer?.id === offerId &&
+    o?.status === "pending" &&
+    o.revision === t.revision &&
+    revision === t.revision &&
+    w.now < o.expires;
+  if (valid) {
+    command(
+      w,
+      id,
+      { type: "ACCEPT", expectedRevision: revision, payload: { offerId } },
+      actor,
+      source,
+    );
+    return { accepted: true, rejected: false, transferId: id };
+  }
+  const reason = `Offer is no longer active: transfer ${t.control.toLowerCase()}, offer ${o?.status || "unknown"}, revision ${t.revision}`;
+  event(
+    w,
+    `Late acceptance received${o ? ` from ${w.staff.find((s) => s.id === o.porterId)?.name}` : ""}; discarded — ${reason}`,
+    actor,
+    t,
+    source,
+  );
+  if (o) {
+    w.porterNotifications ||= [];
+    w.porterNotifications.push({
+      porterId: o.porterId,
+      transferId: id,
+      offerId,
+      reason,
+      at: w.now,
+    });
+    event(
+      w,
+      `${w.staff.find((s) => s.id === o.porterId)?.name} notified in simulated staff inbox: assignment is no longer active`,
+      "backend",
+      t,
+      "simulated notification",
+    );
+  }
+  return { accepted: false, rejected: true, transferId: id, message: reason };
+}
+export function proposeReplacement(
+  w: Ward,
+  messageId: string,
+  oldId: string,
+  patientId: string,
+  destinationName: DestinationName,
+  appointment: number,
+) {
+  const m = w.messages.find((m) => m.id === messageId),
+    t = findTransfer(w, oldId);
+  if (!m || m.role !== "nurse" || m.transferId !== oldId)
+    throw new DomainError(
+      "SOURCE",
+      "A source nurse message for the old transfer is required",
+    );
+  if (
+    !w.patients.some((p) => p.id === patientId) ||
+    !Number.isFinite(appointment) ||
+    appointment < w.now ||
+    appointment > w.now + 7200000
+  )
+    throw new DomainError("TARGET", "Replacement context is invalid");
+  w.replacements ||= [];
+  const prior = w.replacements.find((p) => p.messageId === messageId);
+  if (prior) return prior;
+  if (["COLLECTED", "ARRIVED", "COMPLETED"].includes(t.phase))
+    throw new DomainError(
+      "STATE",
+      "After collection staff intervention is required; replacement transport cannot be automatic",
+    );
+  if (t.control !== "CANCELLED") {
+    t.control = "PAUSED";
+    t.owner = "nurse";
+    t.nextAction = "Nurse: confirm cancellation and replacement request";
+  }
+  const p: Replacement = {
+    id: randomUUID(),
+    messageId,
+    actor: "nurse",
+    oldTransferId: oldId,
+    patientId,
+    destinationName,
+    appointment,
+    revision: t.revision,
+    status: "pending",
+    newTransferId: null,
+  };
+  w.replacements.push(p);
+  event(
+    w,
+    "Request interrupted; replacement proposed. Nurse confirmation required",
+    "agent",
+    t,
+    "agent",
+  );
+  return p;
+}
+export function confirmReplacement(w: Ward, id: string, actor: Role) {
+  requireRole(actor, ["nurse"]);
+  const p = w.replacements?.find((p) => p.id === id);
+  if (!p) throw new DomainError("NOT_FOUND", "Replacement missing", 404);
+  if (p.status === "confirmed") return p;
+  const t = findTransfer(w, p.oldTransferId);
+  if (t.revision !== p.revision)
+    throw new DomainError(
+      "STALE_REVISION",
+      "Replacement concerns an obsolete revision",
+    );
+  if (["COLLECTED", "ARRIVED", "COMPLETED"].includes(t.phase))
+    throw new DomainError(
+      "STATE",
+      "Staff intervention required after collection",
+    );
+  if (t.control === "CANCELLING")
+    return {
+      waiting: true,
+      message: "Await porter cancellation acknowledgement",
+    };
+  if (t.control !== "CANCELLED")
+    command(
+      w,
+      t.id,
+      { type: "CANCEL", expectedRevision: t.revision, payload: {} },
+      actor,
+    );
+  if (findTransfer(w, t.id).control === "CANCELLING")
+    return {
+      waiting: true,
+      message:
+        "Await porter cancellation acknowledgement, then confirm replacement again",
+    };
+  const replacement = createDraft(
+    w,
+    p.patientId,
+    p.appointment,
+    p.destinationName,
+  );
+  p.status = "confirmed";
+  p.newTransferId = replacement.id;
+  event(
+    w,
+    `Replacement created from cancelled transfer ${t.id}; readiness must be confirmed independently`,
+    actor,
+    replacement,
+  );
+  return p;
 }

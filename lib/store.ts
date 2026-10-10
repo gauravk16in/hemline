@@ -1,6 +1,7 @@
 import { PGlite } from "@electric-sql/pglite";
 import { Pool, type PoolClient } from "pg";
 import { readFile, mkdir } from "node:fs/promises";
+import { trace, span } from "neatlogs";
 import { randomUUID } from "node:crypto";
 import { seed, DomainError, type Ward } from "./domain";
 import { isLocalDemo } from "./security";
@@ -24,9 +25,16 @@ function hydrate(w: Ward) {
   }
   return w;
 }
-const globalDb = globalThis as unknown as { hemlineDb?: Promise<Backend> };
-export function backend() {
-  return (globalDb.hemlineDb ??= open());
+const globalDb = globalThis as unknown as {
+  hemlineDb?: Promise<Backend>;
+  hemlineQueueSchema?: Promise<unknown>;
+};
+export async function backend() {
+  const b = await (globalDb.hemlineDb ??= open());
+  await (globalDb.hemlineQueueSchema ??= b.db.query(
+    "alter table hemline_jobs add column if not exists queued_at timestamptz not null default clock_timestamp()",
+  ));
+  return b;
 }
 async function open(): Promise<Backend> {
   const sql = await readFile(
@@ -96,7 +104,14 @@ export async function mutate<T>(
   fence?: string,
 ) {
   const b = await backend();
-  return b.transaction(async (db) => {
+  let audit:
+    | {
+        sessionId: string;
+        events: Ward["events"];
+        transfers: Ward["transfers"];
+      }
+    | undefined;
+  const committed = await b.transaction(async (db) => {
     if (fence) {
       const lease = await db.query(
         "select id from hemline_jobs where token=$1 and status='running' and lease_until>now() for update",
@@ -115,7 +130,15 @@ export async function mutate<T>(
     if (row.state.expiresAt < Date.now())
       throw new DomainError("EXPIRED", "Sandbox expired", 410);
     const w = hydrate(row.state);
+    const previousEvents = new Set(w.events.map((e) => e.id));
     const value = await fn(w);
+    const events = w.events.filter((e) => !previousEvents.has(e.id));
+    if (w.testSessionId && events.length)
+      audit = {
+        sessionId: w.testSessionId,
+        events,
+        transfers: structuredClone(w.transfers),
+      };
     await db.query(
       "update hemline_sandboxes set state=$2,updated_at=now() where id=$1",
       [id, JSON.stringify(w)],
@@ -123,6 +146,37 @@ export async function mutate<T>(
     await syncJobs(db, w);
     return value;
   });
+  if (audit) {
+    const { client } = await import("./agent");
+    await client();
+    const captured = audit;
+    await trace(
+      {
+        name: "hemline-committed-backend-events",
+        kind: "WORKFLOW",
+        sessionId: captured.sessionId,
+      },
+      async () => {
+        for (const e of captured.events)
+          await span(
+            {
+              name: e.text,
+              kind: "TOOL",
+              toolName: "committed_domain_event",
+              captureInput: true,
+              captureOutput: true,
+            },
+            async (input: unknown) => ({
+              committed: true,
+              event: input,
+              transfer:
+                captured.transfers.find((t) => t.id === e.transferId) || null,
+            }),
+          )(e);
+      },
+    );
+  }
+  return committed;
 }
 export async function readWard(id: string, owner: string) {
   const b = await backend();
@@ -144,7 +198,7 @@ export async function claim(sandboxId: string | null = null) {
       sandbox_id: string;
       run_id: string;
     }>(
-      `select j.id,j.sandbox_id,j.run_id from hemline_jobs j join hemline_sandboxes s on s.id=j.sandbox_id where (j.status='pending' or (j.status='running' and j.lease_until<now())) and (s.state->>'expiresAt')::bigint>$1 and ($2::uuid is null or j.sandbox_id=$2) and not exists(select 1 from hemline_jobs other where other.sandbox_id=j.sandbox_id and other.status='running' and other.lease_until>now()) order by j.attempts,j.id for update of j skip locked limit 1`,
+      `select j.id,j.sandbox_id,j.run_id from hemline_jobs j join hemline_sandboxes s on s.id=j.sandbox_id where (j.status='pending' or (j.status='running' and j.lease_until<now())) and (s.state->>'expiresAt')::bigint>$1 and ($2::uuid is null or j.sandbox_id=$2) and not exists(select 1 from hemline_jobs other where other.sandbox_id=j.sandbox_id and other.status='running' and other.lease_until>now()) order by j.queued_at,j.id for update of j skip locked limit 1`,
       [Date.now(), sandboxId],
     );
     const job = picked.rows[0];
@@ -316,4 +370,46 @@ export async function budgetDiagnostics() {
     "select id, state->>'cost' as reserved_cost from hemline_sandboxes order by updated_at desc limit 5",
   );
   return { global: global.rows[0], sandboxes: sandboxes.rows };
+}
+
+export async function resetLocalTestWard(owner: string, sessionId: string) {
+  if (
+    !isLocalDemo() ||
+    process.env.DATABASE_URL ||
+    !/^[a-z0-9-]{1,80}$/.test(sessionId)
+  )
+    throw new DomainError(
+      "TEST_ONLY",
+      "Local development/test storage required",
+      403,
+    );
+  const b = await backend();
+  return b.transaction(async (db) => {
+    const existing = await db.query<{ state: Ward }>(
+      "select state from hemline_sandboxes where owner=$1 for update",
+      [owner],
+    );
+    const previous = existing.rows[0]?.state;
+    if (previous && previous.testSessionId !== sessionId)
+      throw new DomainError("TEST_ONLY", "Cannot reset a non-test ward", 403);
+    if (previous && previous.runs.some((r) => r.status === "running"))
+      throw new DomainError("BUSY", "Test activation is running", 409);
+    const w = seed();
+    w.testSessionId = sessionId;
+    w.mode = "manual";
+    w.paused = true;
+    if (previous) {
+      w.id = previous.id;
+      await db.query("delete from hemline_jobs where sandbox_id=$1", [w.id]);
+      await db.query("update hemline_sandboxes set state=$2 where id=$1", [
+        w.id,
+        JSON.stringify(w),
+      ]);
+    } else
+      await db.query(
+        "insert into hemline_sandboxes(id,owner,state) values($1,$2,$3)",
+        [w.id, owner, JSON.stringify(w)],
+      );
+    return w;
+  });
 }

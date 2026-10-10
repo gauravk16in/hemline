@@ -20,3 +20,20 @@ coverage/
 .DS_Store
 .vscode/
 .idea/
+
+# Local agent/editor tooling; keep these on the developer machine only.
+.codex/
+.entire/
+.claude/
+.agents/
+
+# Next.js regenerates this declaration during development/build.
+next-env.d.ts
+
+# Local exports and operating-system files.
+*.xlsx
+*.pdf
+*.zip
+*.pem
+*.key
+Thumbs.db

@@ -295,6 +295,76 @@ describe("verified transfers", () => {
   });
 });
 
-it('a verified handoff is final and cannot be cancelled afterward',()=>{const {w,t}=prepared();const o=offer(w,t.id,t.revision,'porter-1');act(w,t,'ACCEPT','porter',{offerId:o.id});act(w,t,'COLLECT','porter');act(w,t,'ARRIVE','porter');act(w,t,'HANDOFF','receiving');expect(()=>act(w,t,'CANCEL','nurse')).toThrow('final');});
-it('readiness reminders and escalation follow simulation time',()=>{const w=seed(),t=createDraft(w,'enc-04',w.now+1800000);act(w,t,'CONFIRM_REQUEST','nurse');advance(w,60);expect(w.events.some(e=>e.text==='Readiness confirmation overdue')).toBe(true);expect(t.control).toBe('ACTIVE');advance(w,60);expect(t.control).toBe('ESCALATED');});
-it('obsolete simulated replies cannot approve a changed revision',()=>{const w=seed();w.mode='guided';const t=createDraft(w,'enc-04',w.now+1800000);act(w,t,'CONFIRM_REQUEST','nurse');act(w,t,'SET_REQUIREMENT','nurse',{requirement:'oxygen'});advance(w,5);expect(w.messages).toHaveLength(0);expect(w.events.some(e=>e.text==='Obsolete simulated action discarded')).toBe(true);});
+it("a verified handoff is final and cannot be cancelled afterward", () => {
+  const { w, t } = prepared();
+  const o = offer(w, t.id, t.revision, "porter-1");
+  act(w, t, "ACCEPT", "porter", { offerId: o.id });
+  act(w, t, "COLLECT", "porter");
+  act(w, t, "ARRIVE", "porter");
+  act(w, t, "HANDOFF", "receiving");
+  expect(() => act(w, t, "CANCEL", "nurse")).toThrow("final");
+});
+it("readiness reminders and escalation follow simulation time", () => {
+  const w = seed(),
+    t = createDraft(w, "enc-04", w.now + 1800000);
+  act(w, t, "CONFIRM_REQUEST", "nurse");
+  advance(w, 60);
+  expect(
+    w.events.some((e) => e.text === "Readiness confirmation overdue"),
+  ).toBe(true);
+  expect(t.control).toBe("ACTIVE");
+  advance(w, 60);
+  expect(t.control).toBe("ESCALATED");
+});
+it("obsolete simulated replies cannot approve a changed revision", () => {
+  const w = seed();
+  w.mode = "guided";
+  const t = createDraft(w, "enc-04", w.now + 1800000);
+  act(w, t, "CONFIRM_REQUEST", "nurse");
+  act(w, t, "SET_REQUIREMENT", "nurse", { requirement: "oxygen" });
+  advance(w, 5);
+  expect(w.messages).toHaveLength(0);
+  expect(
+    w.events.some((e) => e.text === "Obsolete simulated action discarded"),
+  ).toBe(true);
+});
+
+it("retains readiness provenance and removes withdrawn evidence", () => {
+  const w = seed();
+  const t = createDraft(w, "enc-04", w.now + 1800000);
+  command(
+    w,
+    t.id,
+    { type: "CONFIRM_REQUEST", expectedRevision: t.revision, payload: {} },
+    "nurse",
+  );
+  command(
+    w,
+    t.id,
+    {
+      type: "CONFIRM_READINESS",
+      expectedRevision: t.revision,
+      payload: { requirement: "nurse" },
+    },
+    "nurse",
+    "simulated staff",
+  );
+  expect(JSON.parse(JSON.stringify(t)).readinessEvidence.nurse).toEqual({
+    actor: "nurse",
+    source: "simulated staff",
+    at: w.now,
+    revision: t.revision,
+  });
+  command(
+    w,
+    t.id,
+    {
+      type: "WITHDRAW_READINESS",
+      expectedRevision: t.revision,
+      payload: { requirement: "nurse" },
+    },
+    "nurse",
+  );
+  expect(t.confirmations.nurse).toBe(false);
+  expect(t.readinessEvidence?.nurse).toBeUndefined();
+});

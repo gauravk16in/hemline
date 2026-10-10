@@ -17,3 +17,5 @@ alter table hemline_heartbeat enable row level security;
 
 -- Preserve historic charging flags; local development reservations are separate.
 alter table hemline_reservations add column if not exists public_charge boolean not null default true;
+
+alter table hemline_jobs add column if not exists queued_at timestamptz not null default clock_timestamp();

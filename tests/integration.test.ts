@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import {
   createSandbox,
+  resetLocalTestWard,
   mutate,
   readWard,
   claim,
@@ -10,7 +11,15 @@ import {
   settle,
   backend,
 } from "../lib/store";
-import { createDraft, queueRun, command, offer, eligible } from "../lib/domain";
+import {
+  createDraft,
+  queueRun,
+  command,
+  offer,
+  eligible,
+  advance,
+  reconcileAcceptance,
+} from "../lib/domain";
 describe("PostgreSQL transactions", () => {
   it("isolates sandboxes and persists committed state", async () => {
     const owner = randomUUID();
@@ -205,4 +214,80 @@ it("keeps public quota at 25 cents while allowing a private demo above it", asyn
   } finally {
     vi.unstubAllEnvs();
   }
+});
+
+it("persists a rejected stale acceptance and its notification atomically", async () => {
+  const owner = randomUUID();
+  const w = await createSandbox(owner);
+  const ids = await mutate(w.id, owner, (w) => {
+    const t = createDraft(w, "enc-04", w.now + 1800000);
+    t.phase = "READY";
+    t.confirmations = { nurse: true, escort: true, receiving: true };
+    const o = offer(w, t.id, t.revision, "porter-1");
+    advance(w, 46);
+    command(
+      w,
+      t.id,
+      { type: "CANCEL", expectedRevision: t.revision, payload: {} },
+      "nurse",
+    );
+    return { transferId: t.id, offerId: o.id, revision: o.revision };
+  });
+  await mutate(w.id, owner, (w) =>
+    reconcileAcceptance(w, ids.transferId, ids.offerId, ids.revision, "porter"),
+  );
+  const saved = await readWard(w.id, owner);
+  expect(saved.transfers[0].control).toBe("CANCELLED");
+  expect(saved.transfers[0].offer?.status).not.toBe("accepted");
+  expect(saved.porterNotifications).toHaveLength(1);
+  expect(saved.events.some((e) => e.text.includes("discarded"))).toBe(true);
+});
+
+it("claims queued messages in arrival order within a sandbox", async () => {
+  const owner = randomUUID();
+  const w = await createSandbox(owner);
+  const ids: string[] = [];
+  for (const text of ["nurse ready", "receiving ready", "dispatch"]) {
+    ids.push(await mutate(w.id, owner, (w) => queueRun(w, text, "nurse").id));
+  }
+  for (const id of ids) {
+    const job = await claim(w.id);
+    expect(job?.run_id).toBe(id);
+    await finish(job!.token);
+  }
+});
+
+it("resets only a named test ward and preserves unrelated wards and global costs", async () => {
+  const visitorOwner = randomUUID();
+  const visitor = await createSandbox(visitorOwner);
+  await mutate(visitor.id, visitorOwner, (w) =>
+    createDraft(w, "enc-04", w.now + 1800000),
+  );
+  const b = await backend();
+  const before = await b.db.query(
+    "select used,public_used from hemline_budget where id=1",
+  );
+  const owner = randomUUID();
+  const first = await resetLocalTestWard(owner, "isolated-reset-test");
+  await b.db.query(
+    "update hemline_sandboxes set state=jsonb_set(state,'{transfers}',$2::jsonb) where id=$1",
+    [
+      first.id,
+      JSON.stringify((await readWard(visitor.id, visitorOwner)).transfers),
+    ],
+  );
+  const reset = await resetLocalTestWard(owner, "isolated-reset-test");
+  expect(reset.id).toBe(first.id);
+  expect(reset.transfers).toHaveLength(0);
+  expect((await readWard(visitor.id, visitorOwner)).transfers).toHaveLength(1);
+  expect(
+    (await b.db.query("select used,public_used from hemline_budget where id=1"))
+      .rows,
+  ).toEqual(before.rows);
+  await expect(
+    resetLocalTestWard(visitorOwner, "isolated-reset-test"),
+  ).rejects.toThrow("non-test ward");
+  await expect(resetLocalTestWard(owner, "different-test")).rejects.toThrow(
+    "non-test ward",
+  );
 });

@@ -1,6 +1,8 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Script from "next/script";
+import Link from "next/link";
+import WardCanvas from "./ward-canvas";
 import {
   ArrowRight,
   Activity,
@@ -11,11 +13,9 @@ import {
   Mic,
   Square,
   Check,
-  ChevronRight,
   ShieldCheck,
   Users,
   AlertCircle,
-  RefreshCw,
 } from "lucide-react";
 import type { Ward as State, Role, Command } from "@/lib/domain";
 type Snapshot = State & {
@@ -78,7 +78,12 @@ export default function Ward() {
     [captcha, setCaptcha] = useState(""),
     [listening, setListening] = useState(false),
     [voice, setVoice] = useState(false),
-    [realNow, setRealNow] = useState(0);
+    [realNow, setRealNow] = useState(0),
+    [view, setView] = useState<"map" | "list">("map"),
+    [panelOpen, setPanelOpen] = useState(false),
+    [voiceOpen, setVoiceOpen] = useState(false),
+    [lastSynced, setLastSynced] = useState(0),
+    [queueFilter, setQueueFilter] = useState<"all" | "attention">("all");
   const recognition = useRef<Recognition | null>(null);
   const load = useCallback(async () => {
     try {
@@ -87,6 +92,7 @@ export default function Ward() {
         setWard(await r.json());
         setStarted(true);
         setRealNow(Date.now());
+        setLastSynced(Date.now());
       } else if (r.status === 410 || r.status === 401) {
         setStarted(false);
         setWard(null);
@@ -98,9 +104,11 @@ export default function Ward() {
   useEffect(() => {
     const initial = setTimeout(() => void load(), 0);
     const timer = setInterval(() => void load(), 2000);
+    const freshness = setInterval(() => setRealNow(Date.now()), 1000);
     return () => {
       clearTimeout(initial);
       clearInterval(timer);
+      clearInterval(freshness);
     };
   }, [load]);
   async function post(path: string, body: unknown) {
@@ -116,7 +124,8 @@ export default function Ward() {
         body: JSON.stringify(body),
       });
       const result = await r.json();
-      if (!r.ok) throw new Error(result.message || "Action failed");
+      if (!r.ok || result.rejected)
+        throw new Error(result.message || "Action rejected");
       await load();
       return result;
     } catch (e) {
@@ -151,6 +160,7 @@ export default function Ward() {
     });
     if (result) {
       setText("");
+      setPanelOpen(true);
       if (selected === "new") setSelected(null);
     }
   }
@@ -264,7 +274,11 @@ export default function Ward() {
                 "Confirm readiness. Find an eligible porter.",
               ],
               ["03", "Recover", "Handle rejection and destination delays."],
-              ["04", "Verify", "Record arrival and receiving-team handoff."],
+              [
+                "04",
+                "Verify",
+                "Confirm arrival at destination and receiving-team handoff.",
+              ],
             ].map(([n, title, description]) => (
               <div className="preview-step" key={n}>
                 <span>{n}</span>
@@ -283,612 +297,122 @@ export default function Ward() {
       </main>
     );
   const patient = t ? ward.patients.find((p) => p.id === t.patientId) : null;
+  const destinationName = t?.destinationName || "Radiology";
+  const destination =
+    destinationName === "CT" ? ward?.ctDestination : ward?.destination;
   return (
-    <div className="app-shell">
-      <header className="topbar">
-        <div className="wordmark">
-          <span className="brand-icon">
-            <Activity size={20} />
+    <div className="hemline-live" data-view={view}>
+      <WardCanvas
+        onAttention={(attention) => {
+          setQueueFilter(attention ? "attention" : "all");
+          setView("list");
+        }}
+        ward={ward}
+        transfer={t}
+        onSelect={(id) => {
+          const p = ward.patients.find((p) => p.id === id)!;
+          const tr = ward.transfers.find(
+            (t) =>
+              t.patientId === id &&
+              t.control !== "CANCELLED" &&
+              t.phase !== "COMPLETED",
+          );
+          if (tr) setSelected(tr.id);
+          else {
+            setSelected("new");
+            setVoiceOpen(true);
+            setText(
+              `Arrange an approved transfer for ${p.name}, encounter ${p.id}, Bed ${p.bed}, to radiology.`,
+            );
+          }
+          setPanelOpen(true);
+        }}
+      />
+      <header className="live-header">
+        <Link className="live-brand" href="/" aria-label="Hemline home">
+          <Activity size={22} /> Hemline
+        </Link>
+        <div className="ward-title">
+          General Ward <span>SYNTHETIC DEMO</span>
+        </div>
+        <div className="header-controls">
+          <span className="live-pill">
+            <i /> {ward.paused ? "CLOCK PAUSED" : "WARD LIVE"}
           </span>
-          Hemline
-        </div>
-        <span className="separator" />
-        <span className="header-label">Ward 03 / Radiology</span>
-        <div className="header-right">
-          <span className="simulation">
-            <span className="live-dot" />
-            Synthetic ward
+          <span
+            className={`sync-age ${realNow - lastSynced > 10000 ? "stale" : ""}`}
+            role="status"
+          >
+            {realNow - lastSynced > 10000 ? "Data stale" : "Synced"}{" "}
+            {Math.max(0, Math.floor((realNow - lastSynced) / 1000))}s ago
           </span>
-          <span className="clock">
-            <Clock3 size={15} />
-            {clock(ward.now)} IST
-          </span>
-        </div>
-      </header>
-      <div className="mode-banner">
-        <span>
-          <ShieldCheck size={15} />
-          {ward.adapter === "fixture"
-            ? "Local fixture adapter — scripted interpretation, not a live LLM"
-            : "Live model adapter"}{" "}
-          ·{" "}
-          {ward.tracingConfigured
-            ? "neatlogs configured"
-            : "neatlogs not configured"}
-        </span>
-        <span>Simulation time {ward.paused ? "paused" : "running"}</span>
-      </div>
-      <main className="workspace">
-        <div className="page-heading">
-          <div>
-            <p className="eyebrow">SHARED OPERATIONAL PICTURE</p>
-            <h1>Keep the ward moving.</h1>
-            <p>See what is waiting, who owns it, and what happens next.</p>
-          </div>
-          <div className="playback">
-            <select
-              aria-label="Demo mode"
-              value={ward.mode}
-              disabled={busy}
-              onChange={(e) =>
-                void post("sandbox/playback", { mode: e.target.value })
-              }
-            >
-              <option value="manual">Manual exploration</option>
-              <option value="guided">Guided staff playback</option>
-            </select>
-            <button
-              className="icon-button"
-              aria-label={
-                ward.paused ? "Resume simulation" : "Pause simulation"
-              }
-              onClick={() =>
-                void post("sandbox/playback", { paused: !ward.paused })
-              }
-            >
-              {ward.paused ? <Play size={18} /> : <Pause size={18} />}
-            </button>
-            {ward.paused && (
-              <button
-                className="secondary small"
-                onClick={() => void post("sandbox/playback", { advance: 30 })}
-              >
-                +30 sec
-              </button>
-            )}
-          </div>
-        </div>
-        {error && (
-          <div className="error" role="alert">
-            <AlertCircle size={17} />
-            {error}
-            <button
-              className="icon-button"
-              aria-label="Dismiss error"
-              onClick={() => setError("")}
-            >
-              ×
-            </button>
-          </div>
-        )}
-        <div className="metrics">
-          <div>
-            <span>Active transfers</span>
-            <strong>
-              {ward.transfers
-                .filter(
-                  (t) => t.phase !== "COMPLETED" && t.control !== "CANCELLED",
-                )
-                .length.toString()
-                .padStart(2, "0")}
-            </strong>
-          </div>
-          <div>
-            <span>Needs attention</span>
-            <strong>
-              {ward.transfers
-                .filter((t) => t.control !== "ACTIVE" || t.phase === "DRAFT")
-                .length.toString()
-                .padStart(2, "0")}
-            </strong>
-          </div>
-          <div>
-            <span>Verified handoffs</span>
-            <strong>
-              {ward.transfers
-                .filter((t) => t.phase === "COMPLETED")
-                .length.toString()
-                .padStart(2, "0")}
-            </strong>
-          </div>
-          <div>
-            <span>Receiving window</span>
-            <strong className="time-value">
-              {clock(ward.destination.availableAfter)}{" "}
-              <span>– {clock(ward.destination.windowEnd)}</span>
-            </strong>
-          </div>
-        </div>
-        <section className="bed-strip" aria-label="Ward beds">
-          <div className="section-caption">
-            WARD BEDS{" "}
-            <span>Patient context stays attached to the encounter.</span>
-          </div>
-          <div className="beds">
-            {Array.from({ length: 18 }, (_, i) => i + 1).map((bed) => {
-              const p = ward.patients.find((p) => p.bed === bed);
-              return (
-                <button
-                  className={`bed ${p ? "occupied" : ""} ${patient?.bed === bed ? "selected" : ""}`}
-                  key={bed}
-                  title={p?.name || "Unoccupied"}
-                  onClick={() => {
-                    const transfer = ward.transfers.find(
-                      (t) => t.patientId === p?.id,
-                    );
-                    if (transfer) setSelected(transfer.id);
-                    else if (p)
-                      setText(
-                        `Arrange an approved transfer for ${p.name}, encounter ${p.id}, Bed ${bed}, to radiology.`,
-                      );
-                  }}
-                >
-                  <span>{bed.toString().padStart(2, "0")}</span>
-                  <span className="bed-dot" />
-                </button>
-              );
-            })}
-          </div>
-        </section>
-        <div className="content-grid">
-          <section className="board">
-            <div className="section-head">
-              <h2>
-                Transfer board <span>{ward.transfers.length}</span>
-              </h2>
-              <button
-                className="text-button"
-                onClick={() => {
-                  setSelected("new");
-                  setText(
-                    "Arrange an approved transfer from Bed 18 to radiology.",
-                  );
-                }}
-              >
-                New request <ArrowRight size={15} />
-              </button>
-            </div>
-            {!ward.transfers.length ? (
-              <div className="empty">
-                <Activity size={28} />
-                <h3>The ward is ready.</h3>
-                <p>
-                  Start with Bed 18. Try guided mode to watch simulated staff
-                  respond, or keep manual mode to act as each role.
-                </p>
-                <button
-                  className="secondary"
-                  onClick={() =>
-                    setText(
-                      "Arrange an approved transfer from Bed 18 to radiology.",
-                    )
-                  }
-                >
-                  Prepare a transfer request <ArrowRight size={16} />
-                </button>
-              </div>
-            ) : (
-              <div className="transfer-list">
-                {ward.transfers.map((transfer) => {
-                  const p = ward.patients.find(
-                    (p) => p.id === transfer.patientId,
-                  )!;
-                  return (
-                    <button
-                      key={transfer.id}
-                      className={`transfer-row ${t?.id === transfer.id ? "active" : ""}`}
-                      onClick={() => setSelected(transfer.id)}
-                    >
-                      <div className="patient-cell">
-                        <span className="bed-number">{p.bed}</span>
-                        <div>
-                          <strong>{p.name}</strong>
-                          <small>{p.id} · Radiology</small>
-                        </div>
-                      </div>
-                      <span
-                        className={`badge ${transfer.phase === "COMPLETED" ? "success" : transfer.control !== "ACTIVE" ? "warning" : ""}`}
-                      >
-                        {transfer.control !== "ACTIVE"
-                          ? transfer.control
-                          : transfer.phase.replaceAll("_", " ")}
-                      </span>
-                      <div className="next-cell">
-                        <strong>{transfer.nextAction}</strong>
-                        <small>
-                          {roleNames[transfer.owner]} · Revision{" "}
-                          {transfer.revision}
-                        </small>
-                      </div>
-                      <span className="row-time">
-                        {clock(transfer.appointment)}
-                      </span>
-                      <ChevronRight size={17} />
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-            {t && (
-              <section className="transfer-detail">
-                <div className="detail-head">
-                  <h3>
-                    {patient?.name} <span>· Bed {patient?.bed}</span>
-                  </h3>
-                  <span className="fine">Revision {t.revision}</span>
-                </div>
-                <div className="progress">
-                  {phases.map((phase, i) => (
-                    <div
-                      key={phase}
-                      className={i <= phases.indexOf(t.phase) ? "reached" : ""}
-                    >
-                      <span>
-                        {i < phases.indexOf(t.phase) ? (
-                          <Check size={10} />
-                        ) : (
-                          i + 1
-                        )}
-                      </span>
-                      <small>
-                        {phase === "CONFIRMED"
-                          ? "Approved"
-                          : phase.charAt(0) + phase.slice(1).toLowerCase()}
-                      </small>
-                    </div>
-                  ))}
-                </div>
-                <div className="requirements">
-                  {t.requirements.map((r) => (
-                    <span
-                      key={r}
-                      className={
-                        t.confirmations[r] ? "confirmed" : "unconfirmed"
-                      }
-                    >
-                      {t.confirmations[r] ? (
-                        <Check size={13} />
-                      ) : (
-                        <Clock3 size={13} />
-                      )}{" "}
-                      {r === "oxygen" ? "Oxygen equipment" : r}{" "}
-                      {t.confirmations[r] ? "confirmed" : "pending"}
-                    </span>
-                  ))}
-                </div>
-                <div className="next-action">
-                  <span className="eyebrow">NEXT ACTION</span>
-                  <strong>{t.nextAction}</strong>
-                  <span>{roleNames[t.owner]}</span>
-                </div>
-              </section>
-            )}
-            <section className="timeline">
-              <div className="section-head">
-                <h2>Recorded activity</h2>
-                <span className="fine">Authoritative events</span>
-              </div>
-              {ward.events.length ? (
-                ward.events
-                  .slice(-10)
-                  .reverse()
-                  .map((e) => (
-                    <div className="timeline-event" key={e.id}>
-                      <span className="event-dot" />
-                      <div>
-                        <p>{e.text}</p>
-                        <small>
-                          {e.actor} · {e.source} · {clock(e.at)} · r{e.revision}
-                        </small>
-                      </div>
-                    </div>
-                  ))
-              ) : (
-                <p className="muted">
-                  Requests and confirmations will appear here.
-                </p>
-              )}
-            </section>
-          </section>
-          <aside className="agent-panel">
-            <div className="section-head">
-              <h2>
-                <span className="agent-mark">
-                  <Activity size={16} />
-                </span>
-                Coordination desk
-              </h2>
-            </div>
-            <label className="field-label" htmlFor="role">
-              Acting as
-            </label>
-            <select
-              id="role"
-              value={ward.role}
-              onChange={(e) =>
-                void post("sandbox/role", {
-                  role: e.target.value,
-                  takeover: ward.mode === "guided",
-                })
-              }
-            >
-              {Object.entries(roleNames).map(([role, label]) => (
-                <option key={role} value={role}>
-                  {label}
-                </option>
-              ))}
-            </select>
-            <p className="fine">
-              Switching roles in guided mode takes that role over from simulated
-              staff.
-            </p>
-            <div className="agent-conversation">
-              {ward.runs.slice(-4).map((run) => (
-                <div
-                  className={`run ${run.status === "error" ? "failed" : ""}`}
-                  key={run.id}
-                >
-                  <span className="run-status">
-                    {run.status === "pending" || run.status === "running" ? (
-                      <RefreshCw size={12} className="spin" />
-                    ) : (
-                      <Activity size={12} />
-                    )}
-                    Hemline · {run.status}
-                  </span>
-                  <p>
-                    {run.status === "done" || run.status === "error"
-                      ? run.summary
-                      : run.text}
-                  </p>
-                </div>
-              ))}
-              {!ward.runs.length && (
-                <div className="run">
-                  <span className="run-status">
-                    <Activity size={12} />
-                    Hemline
-                  </span>
-                  <p>
-                    Give me a transfer goal. I’ll resolve the patient, surface
-                    dependencies, and keep each handoff accountable.
-                  </p>
-                </div>
-              )}
-            </div>
-            <label className="field-label" htmlFor="message">
-              {t ? "Staff reply or coordination question" : "Transfer request"}
-            </label>
-            <textarea
-              id="message"
-              rows={4}
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder={
-                t
-                  ? "“Scanner delayed 15 minutes…”"
-                  : "“Arrange Bed 18’s radiology transfer…”"
-              }
-            />
-            <div className="composer-actions">
-              <button
-                className={`icon-button ${listening ? "recording" : ""}`}
-                aria-label={listening ? "Stop microphone" : "Dictate message"}
-                onClick={microphone}
-              >
-                {listening ? <Square size={16} /> : <Mic size={17} />}
-              </button>
-              <span className="fine">Review before sending</span>
-              <button
-                className="primary small"
-                disabled={busy || !text.trim()}
-                onClick={() => void send()}
-              >
-                Send <Send size={14} />
-              </button>
-            </div>
-            <label className="voice-option">
-              <input
-                type="checkbox"
-                checked={voice}
-                onChange={(e) => setVoice(e.target.checked)}
-              />
-              Speak recorded status summaries
-            </label>
-          {t && t.phase !== "COMPLETED" && t.control !== "CANCELLED" && (
-              <div className="staff-actions">
-                <h3>Your actions</h3>
-                {ward.role === "nurse" && (
-                  <>
-                    {t.phase === "DRAFT" && (
-                      <button
-                        className="primary"
-                        disabled={busy}
-                        onClick={() => void act("CONFIRM_REQUEST")}
-                      >
-                        Confirm patient & request <Check size={16} />
-                      </button>
-                    )}
-                    {t.phase !== "DRAFT" &&
-                      t.requirements
-                        .filter((r) => r !== "receiving" && !t.confirmations[r])
-                        .map((r) => (
-                          <button
-                            className="secondary"
-                            key={r}
-                            disabled={busy}
-                            onClick={() =>
-                              void act("CONFIRM_READINESS", { requirement: r })
-                            }
-                          >
-                            Confirm {r === "nurse" ? "patient readiness" : r}
-                          </button>
-                        ))}
-                    {t.control === "PAUSED" &&
-                      t.destinationRevision !== ward.destination.revision && (
-                        <button
-                          className="secondary"
-                          onClick={() =>
-                            void act("CONFIRM_RESCHEDULE", {
-                              appointment: Math.max(
-                                ward.destination.availableAfter,
-                                ward.now + 600000,
-                              ),
-                            })
-                          }
-                        >
-                          Approve revised receiving window
-                        </button>
-                      )}
-                    <button
-                      className="text-button danger"
-                      onClick={() => {
-                        if (
-                          confirm(
-                            "Request cancellation? Accepted transport requires acknowledgement.",
-                          )
-                        )
-                          void act("CANCEL");
-                      }}
-                    >
-                      Request cancellation
-                    </button>
-                  </>
-                )}
-                {ward.role === "porter" && (
-                  <>
-                    {t.offer?.status === "pending" && (
-                      <>
-                        <button
-                          className="primary"
-                          onClick={() =>
-                            void act("ACCEPT", { offerId: t.offer?.id })
-                          }
-                        >
-                          Accept offer
-                        </button>
-                        <button
-                          className="secondary"
-                          onClick={() =>
-                            void act("REJECT", { offerId: t.offer?.id })
-                          }
-                        >
-                          Decline offer
-                        </button>
-                      </>
-                    )}
-                    {t.phase === "ASSIGNED" && t.control === "ACTIVE" && (
-                      <button
-                        className="primary"
-                        onClick={() => void act("COLLECT")}
-                      >
-                        Record collection
-                      </button>
-                    )}
-                    {t.phase === "COLLECTED" && (
-                      <button
-                        className="primary"
-                        onClick={() => void act("ARRIVE")}
-                      >
-                        Record arrival
-                      </button>
-                    )}
-                    {t.control === "CANCELLING" && (
-                      <button
-                        className="primary"
-                        onClick={() => void act("ACK_CANCEL")}
-                      >
-                        Acknowledge cancellation
-                      </button>
-                    )}
-                  </>
-                )}
-                {ward.role === "receiving" && (
-                  <>
-                    {!t.confirmations.receiving && t.phase !== "DRAFT" && (
-                      <button
-                        className="secondary"
-                        onClick={() =>
-                          void act("CONFIRM_READINESS", {
-                            requirement: "receiving",
-                          })
-                        }
-                      >
-                        Confirm destination readiness
-                      </button>
-                    )}
-                    {t.phase === "ARRIVED" && (
-                      <button
-                        className="primary"
-                        onClick={() => void act("HANDOFF")}
-                      >
-                        Confirm receiving handoff
-                      </button>
-                    )}
-                    <button
-                      className="secondary"
-                      onClick={() =>
-                        setText(
-                          "Scanner delayed 15 minutes. We can receive the patient afterward.",
-                        )
-                      }
-                    >
-                      Report destination delay
-                    </button>
-                  </>
-                )}
-                {ward.role === "coordinator" && (
-                  <>
-                    <button
-                      className="secondary"
-                      onClick={() => void act("TAKEOVER")}
-                    >
-                      Take ownership
-                    </button>
-                    {["PAUSED", "ESCALATED"].includes(t.control) && (
-                      <button
-                        className="secondary"
-                        onClick={() => void act("RESUME")}
-                      >
-                        Resume coordination
-                      </button>
-                    )}
-                  </>
-                )}
-              </div>
-            )}
-            {ward.proposals
-              .filter((p) => p.status === "pending" && p.actor === ward.role)
-              .map((p) => (
-                <div className="proposal" key={p.id}>
-                  <span className="eyebrow">REVIEW INTERPRETATION</span>
-                  <strong>{p.update.kind.replaceAll("_", " ")}</strong>
-                  <p>“{p.update.excerpt}”</p>
-                  {p.update.uncertain ? (
-                    <p className="warning-text">{p.update.question}</p>
-                  ) : (
-                    <button
-                      className="secondary"
-                      onClick={() => void post(`proposals/${p.id}/confirm`, {})}
-                    >
-                      Confirm this interpretation <Check size={14} />
-                    </button>
-                  )}
-                </div>
-              ))}
-            <div className="scenario">
-              <h3>Explore a setback</h3>
+          <span className="header-time">{clock(ward.now)} IST</span>
+          <label className="sr-only" htmlFor="role">
+            Acting as
+          </label>
+          <select
+            id="role"
+            value={ward.role}
+            disabled={busy}
+            onChange={(e) =>
+              void post("sandbox/role", {
+                role: e.target.value,
+                takeover: ward.mode === "guided",
+              })
+            }
+          >
+            {Object.entries(roleNames).map(([r, n]) => (
+              <option value={r} key={r}>
+                {n}
+              </option>
+            ))}
+          </select>
+          <details className="settings-popover">
+            <summary aria-label="Demo controls">
+              <Clock3 size={18} />
+            </summary>
+            <div className="settings-body">
+              <h2>Demo controls</h2>
+              <label htmlFor="mode">Staff playback</label>
               <select
+                id="mode"
+                aria-label="Demo mode"
+                value={ward.mode}
+                onChange={(e) =>
+                  void post("sandbox/playback", { mode: e.target.value })
+                }
+              >
+                <option value="manual">Manual exploration</option>
+                <option value="guided">Guided staff playback</option>
+              </select>
+              <button
+                className="secondary"
+                aria-label={
+                  ward.paused ? "Resume simulation" : "Pause simulation"
+                }
+                onClick={() =>
+                  void post("sandbox/playback", { paused: !ward.paused })
+                }
+              >
+                {ward.paused ? <Play size={15} /> : <Pause size={15} />}{" "}
+                {ward.paused ? "Resume simulation" : "Pause simulation"}
+              </button>
+              <div className="clock-steps">
+                {[15, 30, 60].map((n) => (
+                  <button
+                    className="secondary"
+                    key={n}
+                    onClick={() =>
+                      void post("sandbox/playback", { advance: n })
+                    }
+                  >
+                    +{n} sec
+                  </button>
+                ))}
+              </div>
+              <label htmlFor="scenario">Explore a setback</label>
+              <select
+                id="scenario"
                 aria-label="Failure scenario"
                 value={ward.scenario}
                 onChange={(e) =>
@@ -907,26 +431,579 @@ export default function Ward() {
                   Ambiguous patient reference
                 </option>
               </select>
-              <p className="fine">
-                Events remain labelled as simulation. Change scenarios before
-                dispatch when possible.
+              <p>
+                Switching roles in guided mode takes that role over from
+                simulated staff.
+              </p>
+              <p>
+                {ward.adapter === "live" ? "Live model" : "Scripted fixture"} ·{" "}
+                {ward.tracingConfigured
+                  ? "neatlogs configured"
+                  : "Tracing unavailable"}
+              </p>
+              <p>
+                Usage ${ward.cost.toFixed(3)} · expires in{" "}
+                {Math.max(0, Math.ceil((ward.expiresAt - realNow) / 60000))} min
               </p>
             </div>
-            <div className="desk-footer">
-              <Users size={15} />
-              Human confirmations remain authoritative.
-            </div>
-          </aside>
+          </details>
         </div>
-      </main>
-      <footer className="app-footer">
-        <span>Hemline · Synthetic hospital coordination</span>
-        <span>
-          Sandbox expires in{" "}
-          {Math.max(0, Math.ceil((ward.expiresAt - realNow) / 60000))} min ·
-          Model reserve ${ward.cost.toFixed(3)}
-        </span>
-      </footer>
+      </header>
+      <h1 className="sr-only">Keep the ward moving.</h1>
+      <nav className="live-rail" aria-label="Ward navigation">
+        <button
+          aria-label="Map"
+          aria-pressed={view === "map"}
+          onClick={() => setView("map")}
+        >
+          <Activity size={19} />
+          <span>Ward</span>
+        </button>
+        <button
+          aria-label="Transfers"
+          aria-pressed={view === "list"}
+          onClick={() => (
+            setQueueFilter("all"),
+            setView(view === "list" ? "map" : "list")
+          )}
+        >
+          <Users size={19} />
+          <span>Transfers</span>
+        </button>
+        <button
+          aria-label="New request"
+          onClick={() => {
+            setSelected("new");
+            setVoiceOpen(true);
+            setPanelOpen(true);
+            setText("Arrange an approved transfer from Bed 18 to radiology.");
+          }}
+        >
+          <Send size={19} />
+          <span>Request</span>
+        </button>
+      </nav>
+      {error && (
+        <div className="live-error" role="alert">
+          <AlertCircle size={17} />
+          <span>{error}</span>
+          <button aria-label="Dismiss error" onClick={() => setError("")}>
+            ×
+          </button>
+        </div>
+      )}
+      {view === "list" && (
+        <section className="transfer-drawer" aria-label="Transfer history">
+          <div className="panel-heading">
+            <h2>
+              {queueFilter === "attention"
+                ? "Attention queue"
+                : "Transfers & history"}
+            </h2>
+            <button
+              aria-label="Close transfer history"
+              onClick={() => setView("map")}
+            >
+              ×
+            </button>
+          </div>
+          {ward.transfers.length ? (
+            ward.transfers
+              .filter(
+                (tr) =>
+                  queueFilter === "all" ||
+                  (tr.control !== "CANCELLED" &&
+                    tr.phase !== "COMPLETED" &&
+                    (tr.control !== "ACTIVE" ||
+                      tr.phase === "DRAFT" ||
+                      (tr.pickupDue !== null &&
+                        tr.pickupDue < ward.now &&
+                        tr.phase === "ASSIGNED"))),
+              )
+              .map((tr) => (
+                <button
+                  className="history-transfer"
+                  key={tr.id}
+                  onClick={() => {
+                    setSelected(tr.id);
+                    setPanelOpen(true);
+                    setView("map");
+                  }}
+                >
+                  <b>
+                    Bed {ward.patients.find((p) => p.id === tr.patientId)?.bed}{" "}
+                    · {tr.id.slice(0, 8)}
+                  </b>
+                  <span>
+                    {tr.phase} · {tr.control}
+                  </span>
+                  <small>{tr.nextAction}</small>
+                  <small>
+                    Owner: {roleNames[tr.owner]} · Pickup{" "}
+                    {tr.pickupDue
+                      ? `due ${clock(tr.pickupDue)} (simulation)`
+                      : "not scheduled"}
+                  </small>
+                </button>
+              ))
+          ) : (
+            <p>No transfers yet. Select a bed to start.</p>
+          )}
+          <h3>Recorded activity</h3>
+          {ward.events
+            .slice(-15)
+            .reverse()
+            .map((e) => (
+              <div className="history-event" key={e.id}>
+                <time>{clock(e.at)}</time>
+                <p>
+                  {e.text}
+                  <small>
+                    {e.actor} · {e.source} · r{e.revision}
+                  </small>
+                </p>
+              </div>
+            ))}
+        </section>
+      )}
+      {panelOpen && (
+        <aside
+          className="patient-panel"
+          aria-label="Selected patient and staff actions"
+        >
+          <div className="panel-heading">
+            <span className="eyebrow">
+              {t
+                ? `BED ${patient?.bed} / ${destinationName.toUpperCase()} · r${t.revision}`
+                : "NEW TRANSFER"}
+            </span>
+            <button
+              aria-label="Close patient panel"
+              onClick={() => setPanelOpen(false)}
+            >
+              ×
+            </button>
+          </div>
+          {t ? (
+            <>
+              <div className="patient-title">
+                <h2>{patient?.name}</h2>
+                <span
+                  className={`badge ${t.control !== "ACTIVE" ? "warning" : ""}`}
+                >
+                  {t.control !== "ACTIVE" ? t.control : t.phase}
+                </span>
+              </div>
+              <div className="focus-progress">
+                {["READY", "ASSIGNED", "COLLECTED", "COMPLETED"].map((p) => (
+                  <span
+                    key={p}
+                    className={
+                      phases.indexOf(t.phase) >= phases.indexOf(p)
+                        ? "reached"
+                        : ""
+                    }
+                  >
+                    <i />
+                    {p === "COMPLETED"
+                      ? "Handoff"
+                      : p.charAt(0) + p.slice(1).toLowerCase()}
+                  </span>
+                ))}
+              </div>
+              <p className="focus-next">{t.nextAction}</p>
+              <p className="fine">
+                Transfer {t.id.slice(0, 8)} ·{" "}
+                {t.pickupDue
+                  ? `Pickup due ${clock(t.pickupDue)} simulation time`
+                  : "Pickup not scheduled"}{" "}
+                · ETA unavailable
+              </p>
+              <p className="fine">Next action owner · {roleNames[t.owner]}</p>
+              <div className="requirements">
+                {t.requirements.map((r) => (
+                  <span
+                    className={t.confirmations[r] ? "confirmed" : "unconfirmed"}
+                    key={r}
+                  >
+                    {t.confirmations[r] ? (
+                      <Check size={12} />
+                    ) : (
+                      <Clock3 size={12} />
+                    )}{" "}
+                    {r === "nurse" ? "Patient" : r}
+                  </span>
+                ))}
+              </div>
+              <details className="readiness-audit">
+                <summary>Readiness evidence</summary>
+                {t.requirements.map((r) => {
+                  const ev = t.readinessEvidence?.[r];
+                  return (
+                    <p key={r}>
+                      <b>
+                        {r === "nurse" ? "Patient readiness" : r} —{" "}
+                        {t.confirmations[r] ? "confirmed" : "not confirmed"}
+                      </b>
+                      <small>
+                        {ev
+                          ? `${roleNames[ev.actor as Role] || ev.actor} · ${ev.source} · ${clock(ev.at)} simulation · r${ev.revision}`
+                          : "Source timestamp unavailable in this older record"}
+                      </small>
+                    </p>
+                  );
+                })}
+              </details>
+              {t.phase === "ARRIVED" && (
+                <p className="handoff-receipt">
+                  Arrived at {destinationName}. Receiving team acknowledgement
+                  still required. Transport is not complete.
+                </p>
+              )}
+              {t.phase === "COMPLETED" && (
+                <p className="handoff-receipt">
+                  Handoff accepted by receiving team
+                  {t.handoffEvidence
+                    ? ` at ${clock(t.handoffEvidence.at)} simulation · ${t.handoffEvidence.source}`
+                    : " · see recorded activity"}
+                  .
+                </p>
+              )}
+              {t.control === "ESCALATED" && (
+                <p className="recovery-hint">
+                  Pause the clock. Coordinator resumes this transfer before
+                  staff can update readiness.
+                </p>
+              )}
+            </>
+          ) : (
+            <>
+              <h2>Start with Bed 18.</h2>
+              <p className="fine">
+                Describe a transfer in the voice dock. Hemline resolves the
+                patient and asks you to confirm.
+              </p>
+              <button
+                className="secondary"
+                onClick={() =>
+                  setText(
+                    "Arrange an approved transfer from Bed 18 to radiology.",
+                  )
+                }
+              >
+                Prepare a transfer request
+              </button>
+            </>
+          )}
+          {t && t.phase !== "COMPLETED" && t.control !== "CANCELLED" && (
+            <div className="staff-actions">
+              <h3>Your actions</h3>
+              {ward.role === "nurse" && (
+                <>
+                  {t.phase === "DRAFT" && (
+                    <button
+                      className="primary"
+                      disabled={busy}
+                      onClick={() => void act("CONFIRM_REQUEST")}
+                    >
+                      Confirm patient & request <Check size={16} />
+                    </button>
+                  )}
+                  {t.phase !== "DRAFT" &&
+                    t.requirements
+                      .filter((r) => r !== "receiving" && !t.confirmations[r])
+                      .map((r) => (
+                        <button
+                          className="secondary"
+                          key={r}
+                          disabled={busy}
+                          onClick={() =>
+                            void act("CONFIRM_READINESS", { requirement: r })
+                          }
+                        >
+                          Confirm {r === "nurse" ? "patient readiness" : r}
+                        </button>
+                      ))}
+                  {t.control === "PAUSED" &&
+                    destination &&
+                    t.destinationRevision !== destination.revision && (
+                      <button
+                        className="secondary"
+                        onClick={() =>
+                          void act("CONFIRM_RESCHEDULE", {
+                            appointment: Math.max(
+                              destination!.availableAfter,
+                              ward.now + 600000,
+                            ),
+                          })
+                        }
+                      >
+                        Approve revised receiving window
+                      </button>
+                    )}
+                  <button
+                    className="text-button danger"
+                    onClick={() => {
+                      if (
+                        confirm(
+                          "Request cancellation? Accepted transport requires acknowledgement.",
+                        )
+                      )
+                        void act("CANCEL");
+                    }}
+                  >
+                    Request cancellation
+                  </button>
+                </>
+              )}
+              {ward.role === "porter" && (
+                <>
+                  {t.offer?.status === "pending" && (
+                    <>
+                      <button
+                        className="primary"
+                        onClick={() =>
+                          void act("ACCEPT", { offerId: t.offer?.id })
+                        }
+                      >
+                        Accept offer
+                      </button>
+                      <button
+                        className="secondary"
+                        onClick={() =>
+                          void act("REJECT", { offerId: t.offer?.id })
+                        }
+                      >
+                        Decline offer
+                      </button>
+                    </>
+                  )}
+                  {t.phase === "ASSIGNED" && t.control === "ACTIVE" && (
+                    <button
+                      className="primary"
+                      onClick={() => void act("COLLECT")}
+                    >
+                      Confirm patient collected
+                    </button>
+                  )}
+                  {t.phase === "COLLECTED" && (
+                    <button
+                      className="primary"
+                      onClick={() => void act("ARRIVE")}
+                    >
+                      Confirm arrival at destination
+                    </button>
+                  )}
+                  {t.control === "CANCELLING" && (
+                    <button
+                      className="primary"
+                      onClick={() => void act("ACK_CANCEL")}
+                    >
+                      Acknowledge cancellation
+                    </button>
+                  )}
+                </>
+              )}
+              {ward.role === "receiving" && (
+                <>
+                  {!t.confirmations.receiving && t.phase !== "DRAFT" && (
+                    <button
+                      className="secondary"
+                      onClick={() =>
+                        void act("CONFIRM_READINESS", {
+                          requirement: "receiving",
+                        })
+                      }
+                    >
+                      Confirm destination readiness
+                    </button>
+                  )}
+                  {t.phase === "ARRIVED" && (
+                    <button
+                      className="primary"
+                      onClick={() => void act("HANDOFF")}
+                    >
+                      Confirm receiving handoff
+                    </button>
+                  )}
+                  <button
+                    className="secondary"
+                    onClick={() =>
+                      setText(
+                        "Scanner delayed 15 minutes. We can receive the patient afterward.",
+                      )
+                    }
+                  >
+                    Report destination delay
+                  </button>
+                </>
+              )}
+              {ward.role === "coordinator" && (
+                <>
+                  <button
+                    className="secondary"
+                    onClick={() => void act("TAKEOVER")}
+                  >
+                    Take ownership
+                  </button>
+                  {["PAUSED", "ESCALATED"].includes(t.control) && (
+                    <button
+                      className="secondary"
+                      onClick={() => void act("RESUME")}
+                    >
+                      Resume coordination
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+          {ward.proposals
+            .filter((p) => p.status === "pending" && p.actor === ward.role)
+            .map((p) => (
+              <div className="proposal" key={p.id}>
+                <span className="eyebrow">REVIEW INTERPRETATION</span>
+                <strong>{p.update.kind.replaceAll("_", " ")}</strong>
+                <p>“{p.update.excerpt}”</p>
+                {p.update.uncertain ? (
+                  <p className="warning-text">{p.update.question}</p>
+                ) : (
+                  <button
+                    className="secondary"
+                    onClick={() => void post(`proposals/${p.id}/confirm`, {})}
+                  >
+                    Confirm this interpretation <Check size={14} />
+                  </button>
+                )}
+              </div>
+            ))}
+
+          {ward.replacements
+            ?.filter((p) => p.status === "pending" && p.oldTransferId === t?.id)
+            .map((p) => (
+              <div className="proposal" key={p.id}>
+                <span className="eyebrow">REVIEW REPLACEMENT</span>
+                <p>
+                  Cancel Bed {patient?.bed}; replace with{" "}
+                  {ward.patients.find((x) => x.id === p.patientId)?.name}, Bed{" "}
+                  {ward.patients.find((x) => x.id === p.patientId)?.bed} →{" "}
+                  {p.destinationName}.
+                </p>
+                <p className="fine">
+                  Original readiness will not carry over. Accepted transport
+                  requires porter cancellation acknowledgement.
+                </p>
+                {ward.role === "nurse" && (
+                  <button
+                    className="secondary"
+                    disabled={busy}
+                    onClick={async () => {
+                      const result = await post(
+                        `replacements/${p.id}/confirm`,
+                        {},
+                      );
+                      if (result?.newTransferId)
+                        setSelected(result.newTransferId);
+                    }}
+                  >
+                    Confirm cancellation & replacement
+                  </button>
+                )}
+              </div>
+            ))}
+          {ward.role === "porter" &&
+            ward.porterNotifications
+              ?.filter((n) => n.transferId === t?.id)
+              .slice(-2)
+              .map((n) => (
+                <p className="handoff-receipt" key={`${n.offerId}-${n.at}`}>
+                  Staff inbox: {n.reason}. Do not collect this patient.
+                </p>
+              ))}
+          <div className="live-activity" aria-live="polite">
+            <span className="eyebrow">RECORDED ACTIVITY</span>
+            {ward.events
+              .filter((e) => !t || e.transferId === t.id)
+              .slice(-3)
+              .reverse()
+              .map((e) => (
+                <p key={e.id}>
+                  <time>{clock(e.at)}</time>
+                  <span>
+                    {e.text}
+                    <small>
+                      {e.actor} · {e.source}
+                    </small>
+                  </span>
+                </p>
+              ))}
+          </div>
+          <details className="agent-details">
+            <summary>Agent messages & run status</summary>
+            {ward.runs.slice(-4).map((r) => (
+              <p key={r.id}>
+                <b>{r.status}</b> {r.traceId && <code>Trace {r.traceId}</code>}{" "}
+                ·{" "}
+                {r.status === "done" || r.status === "error"
+                  ? r.summary
+                  : r.text}
+              </p>
+            ))}
+          </details>
+        </aside>
+      )}
+      <details
+        className="live-voice"
+        open={voiceOpen}
+        onToggle={(e) => setVoiceOpen(e.currentTarget.open)}
+      >
+        <summary className="voice-toggle">
+          Voice · {listening ? "Listening" : "Ready"}
+        </summary>
+        <div className="voice-status" aria-live="polite">
+          <span className={listening ? "listening-dot" : "live-dot"} />
+          {listening
+            ? "Listening · review before sending"
+            : ward.runs.some((r) => ["pending", "running"].includes(r.status))
+              ? "Hemline is coordinating…"
+              : lastSummary ||
+                "Voice ready · select a bed or describe a transfer"}
+        </div>
+        <div className="voice-composer">
+          <button
+            className={`mic-button ${listening ? "recording" : ""}`}
+            aria-label={listening ? "Stop microphone" : "Dictate message"}
+            onClick={microphone}
+          >
+            {listening ? <Square size={18} /> : <Mic size={20} />}
+          </button>
+          <label className="sr-only" htmlFor="message">
+            {t ? "Staff reply or coordination question" : "Transfer request"}
+          </label>
+          <textarea
+            id="message"
+            rows={1}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="Ask Hemline or give a ward update…"
+          />
+          <button
+            className="voice-send"
+            disabled={busy || !text.trim()}
+            onClick={() => void send()}
+          >
+            Send <Send size={16} />
+          </button>
+        </div>
+        <label className="voice-option">
+          <input
+            type="checkbox"
+            checked={voice}
+            onChange={(e) => setVoice(e.target.checked)}
+          />{" "}
+          Speak recorded status summaries
+        </label>
+      </details>
     </div>
   );
 }
