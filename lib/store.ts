@@ -41,9 +41,26 @@ async function open(): Promise<Backend> {
     `${process.cwd()}/supabase/migrations/001_hemline.sql`,
     "utf8",
   );
-  if (process.env.DATABASE_URL || process.env.POSTGRES_URL) {
+  const databaseUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+  if (databaseUrl) {
+    // Hosted Postgres may use a private CA that is absent from the Vercel
+    // runtime trust store. Trust only the CA explicitly provided by the
+    // database operator; never disable TLS certificate verification.
+    const ca = process.env.DATABASE_CA_CERT?.replace(/\\n/g, "\n").trim();
+    const connection = new URL(databaseUrl);
+    if (!["postgres:", "postgresql:"].includes(connection.protocol))
+      throw new DomainError("CONFIG", "Invalid database URL scheme", 503);
+    if (ca) {
+      // pg-connection-string's sslmode parameter overrides the Pool ssl
+      // configuration, so remove it when supplying an explicit trusted CA.
+      for (const key of ["sslmode", "sslrootcert", "sslcert", "sslkey", "ssl"])
+        connection.searchParams.delete(key);
+    }
     const pool = new Pool({
-      connectionString: process.env.DATABASE_URL || process.env.POSTGRES_URL,
+      connectionString: connection.toString(),
+      ...(ca
+        ? { ssl: { ca, rejectUnauthorized: true, servername: connection.hostname } }
+        : {}),
       max: process.env.VERCEL ? 2 : 5,
       connectionTimeoutMillis: 10000,
       idleTimeoutMillis: 20000,
