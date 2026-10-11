@@ -44,3 +44,6 @@ Thumbs.db
 # Python Lambda test artifacts.
 __pycache__/
 *.pyc
+
+# Private AWS deployment settings.
+worker-config.json

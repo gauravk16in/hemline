@@ -2,16 +2,21 @@
 import hmac
 import json
 import os
+from pathlib import Path
 import time
 import urllib.request
 import boto3
 
 
+def settings():
+    path = Path(__file__).with_name("worker-config.json")
+    return json.loads(path.read_text()) if path.exists() else os.environ
+
 def api(path, body):
     request = urllib.request.Request(
-        os.environ['APP_BASE_URL'].rstrip('/') + '/api/internal/' + path,
+        settings()['APP_BASE_URL'].rstrip('/') + '/api/internal/' + path,
         data=json.dumps(body).encode(), method='POST',
-        headers={'Authorization': 'Bearer ' + os.environ['WORKER_SECRET'],
+        headers={'Authorization': 'Bearer ' + settings()['WORKER_SECRET'],
                  'Content-Type': 'application/json'})
     with urllib.request.urlopen(request, timeout=110) as response:
         return json.load(response)
@@ -26,7 +31,7 @@ def enqueue(context, payload):
 def lambda_handler(event, context):
     if 'requestContext' in event:
         supplied = (event.get('headers') or {}).get('authorization', '')
-        expected = 'Bearer ' + os.environ['WORKER_SECRET']
+        expected = 'Bearer ' + settings()['WORKER_SECRET']
         if not hmac.compare_digest(supplied, expected):
             return {'statusCode': 403, 'body': 'Forbidden'}
         if event['requestContext'].get('http', {}).get('method') != 'POST':
