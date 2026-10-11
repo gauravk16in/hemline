@@ -1,4 +1,4 @@
-import { allIds, mutate, claim, finish, heartbeat } from "./store";
+import { allIds, mutate, claim, finish, heartbeat, backend } from "./store";
 import { activate } from "./agent";
 import { advance, event, findTransfer } from "./domain";
 let busy = false;
@@ -16,7 +16,7 @@ export async function tick() {
       });
     }
     const job = await claim();
-    if (!job) return { idle: true };
+    if (!job) return { idle: true, moreWork: await hasWork() };
     try {
       await activate(job.sandbox_id, job.token, job.run_id);
       await finish(job.token);
@@ -52,8 +52,21 @@ export async function tick() {
       ).catch(() => {});
       await finish(job.token, "error");
     }
-    return { processed: job.run_id };
+    return { processed: job.run_id, moreWork: await hasWork() };
   } finally {
     busy = false;
   }
+}
+
+async function hasWork() {
+  const b = await backend();
+  const r = await b.db.query<{ active: boolean }>(
+    `select exists(
+    select 1 from hemline_sandboxes s where (s.state->>'expiresAt')::bigint>$1 and (
+      exists(select 1 from hemline_jobs j where j.sandbox_id=s.id and j.status in ('pending','running'))
+      or (s.state->>'paused'='false' and jsonb_array_length(s.state->'scheduled')>0)
+    )) as active`,
+    [Date.now()],
+  );
+  return r.rows[0].active;
 }

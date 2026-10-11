@@ -19,3 +19,7 @@ alter table hemline_heartbeat enable row level security;
 alter table hemline_reservations add column if not exists public_charge boolean not null default true;
 
 alter table hemline_jobs add column if not exists queued_at timestamptz not null default clock_timestamp();
+
+-- Global, fenced Lambda scheduler admission. Patient/job state remains unchanged.
+create table if not exists hemline_scheduler(id integer primary key check(id=1),token uuid not null,owner text,lease_until timestamptz not null);
+alter table hemline_scheduler enable row level security;

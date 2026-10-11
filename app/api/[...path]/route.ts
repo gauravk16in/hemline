@@ -1,5 +1,5 @@
 import { trace, span, setTraceOutput } from "neatlogs";
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { z } from "zod";
 import { createHash } from "node:crypto";
 import {
@@ -41,6 +41,13 @@ import {
   shutdownTelemetry,
   drainTelemetry,
 } from "@/lib/agent";
+import {
+  schedulerStart,
+  schedulerLease,
+  schedulerEnd,
+  schedulerCheck,
+  wakeScheduler,
+} from "@/lib/scheduler";
 import { tick } from "@/lib/worker";
 export const runtime = "nodejs";
 // Vercel allows the bounded 90-second agent activation plus database/export overhead.
@@ -54,6 +61,30 @@ async function handle(req: NextRequest) {
       workerCheck(req);
       if (req.method !== "POST")
         throw new DomainError("METHOD", "POST required", 405);
+      if (
+        path[1] === "scheduler" ||
+        (path[1] === "tick" && process.env.LAMBDA_WORKER_URL)
+      ) {
+        const input = await req.json();
+        if (path[2] === "start")
+          return NextResponse.json(await schedulerStart());
+        const token = z
+          .string()
+          .uuid()
+          .parse(input.token || input.schedulerToken);
+        const owner = z
+          .string()
+          .min(1)
+          .max(100)
+          .parse(input.owner || input.schedulerOwner);
+        if (path[2] === "lease")
+          return NextResponse.json(await schedulerLease(token, owner));
+        if (["stop", "handoff"].includes(path[2]))
+          return NextResponse.json(
+            await schedulerEnd(token, owner, path[2] === "handoff"),
+          );
+        await schedulerCheck(token, owner);
+      }
       if (path[1] === "budget")
         return NextResponse.json(await budgetDiagnostics());
       return NextResponse.json(
@@ -422,6 +453,22 @@ async function handle(req: NextRequest) {
   }
 }
 async function route(req: NextRequest) {
+  // after() keeps the wake request alive after responding, without blocking staff.
+  // Internal ticks never recursively wake the dispatcher. Only authenticated reads
+  // and accepted mutations can recover an expired scheduler.
+  if (
+    process.env.LAMBDA_WORKER_URL &&
+    !req.nextUrl.pathname.includes("/internal/")
+  ) {
+    try {
+      session(req);
+      after(async () => {
+        await wakeScheduler().catch(() =>
+          console.error("Hemline scheduler wake failed"),
+        );
+      });
+    } catch {}
+  }
   try {
     if (
       !process.env.NEATLOGS_API_KEY ||

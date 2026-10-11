@@ -40,3 +40,7 @@ Thumbs.db
 
 # Vercel local linkage and downloaded environment files.
 .vercel/
+
+# Python Lambda test artifacts.
+__pycache__/
+*.pyc

@@ -102,3 +102,13 @@ If hosted PostgreSQL reports `SELF_SIGNED_CERT_IN_CHAIN`, set `DATABASE_CA_CERT`
 Public onboarding requires Turnstile and anonymous authentication. There is no hourly per-IP creation quota. Existing signed-in sessions reopen their workspace; ownership isolation, command rate limits and model spending caps remain enforced. The interface uses plain patient-transport language and keeps a brief fictional-records notice.
 
 Audit corrections: cancelled transfers are terminal; post-collection resume records an acknowledged staff resolution while retaining the porter. Operational voice/status summaries follow committed state. Unresolved requests receive clarification. Tracing records HTTP outcomes and committed events across workspaces; response trace IDs support readback. Verification results are recorded locally until final checks finish.
+
+## Restricted AWS worker (prepared; deployment verification pending)
+
+`aws/lambda_function.py` supplies a Python 3.12 Lambda dispatcher/worker in us-east-1. It calls the existing authenticated Vercel tick API; model calls, persistence and neatlogs remain on Vercel. A function-specific IAM role can invoke only `hemline-worker`; no EC2 instance, load balancer, EventBridge, CloudWatch policy or additional VPC is needed. The existing team EC2 instance is untouched.
+
+Configure 256 MB memory, a 900-second timeout, reserved concurrency 2, asynchronous retries 2 and maximum event age 900 seconds. Lambda stores only APP_BASE_URL and WORKER_SECRET. Its Function URL uses application bearer authentication; invalid requests never dispatch jobs. Set LAMBDA_WORKER_URL on Vercel only after the endpoint is protected by the deployed handler. Authenticated browser/API activity wakes it; PostgreSQL admission and owner leases prevent competing tick loops. Invocations hand off asynchronously in at most 12 slices, bounded by a two-hour session. Idle sessions stop immediately. Simulation timers use existing paused-clock semantics; Lambda does not poll the model while waiting.
+
+This is activity-driven bounded scheduling, not an unlimited always-on service. Hard session expiry or exhausted asynchronous retries require subsequent authenticated activity to recover; state and job leases persist. Exact hosted handoff/restart behavior must be verified before claiming readiness. Disable via reserved concurrency 0 and clear LAMBDA_WORKER_URL when finished; Lambda does not incur compute while idle. The $25 account allowance is shared and cannot be guaranteed by code alone.
+
+Local scheduler checks: `npm test -- tests/scheduler.test.ts`; `python3 aws/test_lambda.py`.
