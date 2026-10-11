@@ -376,8 +376,15 @@ export async function admission(ipHash: string) {
       )
     ).rows[0];
     const starts = row.starts.filter((at) => at > Date.now() - 3600000);
-    if (starts.length >= 2)
-      throw new DomainError("RATE_LIMIT", "Sandbox creation rate limit", 429);
+    if (starts.length >= 2) {
+      const retryAt = Math.min(...starts) + 3600000;
+      const minutes = Math.max(1, Math.ceil((retryAt - Date.now()) / 60000));
+      throw new DomainError(
+        "RATE_LIMIT",
+        `Demo creation limit reached (two attempts per hour). Retry in ${minutes} minute${minutes === 1 ? "" : "s"}. Existing wards remain available.`,
+        429,
+      );
+    }
     starts.push(Date.now());
     await db.query("update hemline_admission set starts=$2 where ip_hash=$1", [
       ipHash,
