@@ -59,7 +59,13 @@ async function open(): Promise<Backend> {
     const pool = new Pool({
       connectionString: connection.toString(),
       ...(ca
-        ? { ssl: { ca, rejectUnauthorized: true, servername: connection.hostname } }
+        ? {
+            ssl: {
+              ca,
+              rejectUnauthorized: true,
+              servername: connection.hostname,
+            },
+          }
         : {}),
       max: process.env.VERCEL ? 2 : 5,
       connectionTimeoutMillis: 10000,
@@ -152,9 +158,9 @@ export async function mutate<T>(
     const previousEvents = new Set(w.events.map((e) => e.id));
     const value = await fn(w);
     const events = w.events.filter((e) => !previousEvents.has(e.id));
-    if (w.testSessionId && events.length)
+    if (process.env.NEATLOGS_API_KEY && events.length)
       audit = {
-        sessionId: w.testSessionId,
+        sessionId: w.testSessionId || w.id,
         events,
         transfers: structuredClone(w.transfers),
       };

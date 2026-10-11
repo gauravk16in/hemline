@@ -368,3 +368,42 @@ it("retains readiness provenance and removes withdrawn evidence", () => {
   expect(t.confirmations.nurse).toBe(false);
   expect(t.readinessEvidence?.nurse).toBeUndefined();
 });
+
+it("cancelled transfers reject coordinator resume and takeover", () => {
+  const w = seed();
+  const t = createDraft(w, "enc-04", w.now + 1800000);
+  command(
+    w,
+    t.id,
+    { type: "CANCEL", expectedRevision: 1, payload: {} },
+    "nurse",
+  );
+  for (const type of ["RESUME", "TAKEOVER"] as const)
+    expect(() =>
+      command(
+        w,
+        t.id,
+        { type, expectedRevision: 1, payload: {} },
+        "coordinator",
+      ),
+    ).toThrow("not active");
+  expect(t.control).toBe("CANCELLED");
+});
+
+it("requires acknowledged safe resolution after collection and keeps the porter", () => {
+  const { w, t } = prepared();
+  const o = offer(w, t.id, t.revision, "porter-1");
+  act(w, t, "ACCEPT", "porter", { offerId: o.id });
+  act(w, t, "COLLECT", "porter");
+  act(w, t, "CANCEL", "nurse");
+  expect(() => act(w, t, "RESUME", "coordinator")).toThrow("safe resolution");
+  expect(t.control).toBe("ESCALATED");
+  act(w, t, "RESUME", "coordinator", {
+    resolution:
+      "Porter and receiver agreed to continue to the confirmed destination",
+    acknowledged: true,
+  });
+  expect(t.phase).toBe("COLLECTED");
+  expect(t.offer?.porterId).toBe("porter-1");
+  expect(t.safeResolution?.actor).toBe("coordinator");
+});

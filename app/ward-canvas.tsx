@@ -132,6 +132,7 @@ export default function WardCanvas({
               (t) =>
                 t.control !== "ACTIVE" ||
                 t.phase === "DRAFT" ||
+                !t.requirements.every((r) => t.confirmations[r]) ||
                 (t.phase === "ASSIGNED" &&
                   t.pickupDue !== null &&
                   t.pickupDue < ward.now),

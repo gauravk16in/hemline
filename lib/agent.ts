@@ -27,6 +27,7 @@ import {
   type Run,
   type Update,
 } from "./domain";
+const MAX_OUTPUT_TOKENS = 600;
 let clientPromise: Promise<OpenAI> | undefined;
 export const fixtureMode = () =>
   !process.env.OPENAI_API_KEY && process.env.NODE_ENV !== "production";
@@ -108,7 +109,7 @@ export async function modelResponse(
         input,
         tools,
         parallel_tool_calls: false,
-        max_output_tokens: 1000,
+        max_output_tokens: MAX_OUTPUT_TOKENS,
         store: false,
       },
       { signal },
@@ -118,7 +119,7 @@ export async function modelResponse(
     {
       model: process.env.OPENAI_MODEL || "claude-sonnet-4.6",
       messages,
-      max_tokens: 1000,
+      max_tokens: MAX_OUTPUT_TOKENS,
       parallel_tool_calls: false,
       tools: tools.map((t) => ({
         type: "function" as const,
@@ -525,6 +526,15 @@ export async function perform(
               event(w, t.nextAction, "agent", t, "agent");
               return t;
             case "wait_for_event":
+              if (
+                t?.phase === "READY" &&
+                t.control === "ACTIVE" &&
+                !t.offer?.status.match(/^(pending|accepted)$/)
+              )
+                throw new DomainError(
+                  "DISPATCH_PENDING",
+                  "Transport is ready. List eligible porters and offer transport, or escalate if no eligible porter exists. Waiting is not an action while dispatch is pending.",
+                );
               return {
                 waiting: true,
                 state: t ? summary(w, t.id) : "Await user clarification",
@@ -772,7 +782,7 @@ export async function activate(id: string, token: string, runId: string) {
         },
         token,
       );
-      active.setAttribute("hemline.prompt_version", "6");
+      active.setAttribute("hemline.prompt_version", "7");
       active.setAttribute("hemline.mode", "live");
       const start = Date.now();
       let input: OpenAI.Responses.ResponseInputItem[] = [];
@@ -802,13 +812,11 @@ export async function activate(id: string, token: string, runId: string) {
           input = [
             { role: "user", content: JSON.stringify(projection(w, run)) },
           ];
-        if (
+        const inputTokens =
           tokenizer.encode(
             prompt + JSON.stringify(input) + JSON.stringify(tools),
-          ).length +
-            128 >
-          6000
-        )
+          ).length + 128;
+        if (inputTokens > 6000)
           throw new DomainError(
             "TOKEN_LIMIT",
             "Input context exceeds 6000 tokens",
@@ -824,7 +832,9 @@ export async function activate(id: string, token: string, runId: string) {
           throw new DomainError("PRICING", "Invalid pricing configuration");
         const reservation = await reserve(
           id,
-          (6000 * inPrice + 1000 * outPrice) / 1e6,
+          (Math.min(6000, Math.ceil(inputTokens * 1.2)) * inPrice +
+            MAX_OUTPUT_TOKENS * outPrice) /
+            1e6,
         );
         let response: Pick<OpenAI.Responses.Response, "output" | "usage">;
         try {
@@ -836,7 +846,9 @@ export async function activate(id: string, token: string, runId: string) {
           if (
             retries++ === 0 &&
             error instanceof OpenAI.APIError &&
-            (error.status === 429 || (error.status || 0) >= 500)
+            (error instanceof OpenAI.APIConnectionError ||
+              error.status === 429 ||
+              (error.status || 0) >= 500)
           )
             continue;
           throw error;
@@ -855,6 +867,40 @@ export async function activate(id: string, token: string, runId: string) {
           (item) => item.type === "function_call",
         );
         if (!callsOut.length) {
+          const currentTransfer = run.transferId
+            ? w.transfers.find((t) => t.id === run.transferId)
+            : null;
+          if (
+            currentTransfer?.phase === "READY" &&
+            currentTransfer.control === "ACTIVE" &&
+            !["pending", "accepted"].includes(
+              currentTransfer.offer?.status || "",
+            )
+          ) {
+            input.push({
+              role: "user",
+              content:
+                "Backend: dispatch is pending. Use list_eligible_porters then offer_transport, or escalate a real blocker. Do not stop at READY.",
+            });
+            continue;
+          }
+          await mutate(
+            id,
+            null,
+            (w) => {
+              const current = w.runs.find((r) => r.id === runId)!;
+              if (
+                !current.transferId &&
+                !w.proposals.some((p) => p.messageId === current.messageId)
+              ) {
+                const question =
+                  "Please confirm the patient's current name or encounter and the destination: Radiology or CT. Bed history can refer to more than one patient.";
+                event(w, question, "agent", null, "agent");
+                current.summary = question;
+              }
+            },
+            token,
+          );
           waiting = true;
           break;
         }
@@ -880,12 +926,31 @@ export async function activate(id: string, token: string, runId: string) {
                   : undefined,
             };
           }
+          if (
+            call.name === "propose_staff_update" &&
+            result &&
+            typeof result === "object" &&
+            "status" in result &&
+            result.status === "confirmed" &&
+            "update" in result
+          ) {
+            const update = updateSchema.safeParse(result.update);
+            if (
+              update.success &&
+              update.data.kind === "offer_response" &&
+              update.data.decision === true
+            )
+              waiting = true;
+          }
           input.push({
             type: "function_call_output",
             call_id: call.call_id,
             output: JSON.stringify(result),
           });
-          if (["wait_for_event", "request_clarification"].includes(call.name))
+          if (
+            ["wait_for_event", "request_clarification"].includes(call.name) &&
+            !(result && typeof result === "object" && "error" in result)
+          )
             waiting = true;
         }
       }
@@ -895,7 +960,11 @@ export async function activate(id: string, token: string, runId: string) {
         (w) => {
           const r = w.runs.find((r) => r.id === runId)!;
           r.status = "done";
-          r.summary = summary(w, r.transferId);
+          r.summary = r.transferId
+            ? summary(w, r.transferId)
+            : r.summary === "Queued"
+              ? summary(w, null)
+              : r.summary;
           setTraceOutput(r.summary);
         },
         token,

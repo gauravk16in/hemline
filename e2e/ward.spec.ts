@@ -19,10 +19,10 @@ test("visitor completes an explicitly simulated transfer and remains isolated", 
   browser,
 }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "Open your demo ward" }).click();
+  await page.getByRole("button", { name: "Open Hemline" }).click();
   await page.getByRole("button", { name: "New request", exact: true }).click();
   await expect(
-    page.getByRole("region", { name: "Interactive ward map" }),
+    page.getByRole("region", { name: "Interactive hospital map" }),
   ).toBeVisible();
   await page
     .getByRole("button", { name: "Prepare a transfer request" })
@@ -63,7 +63,7 @@ test("visitor completes an explicitly simulated transfer and remains isolated", 
   const otherPage = await other.newPage();
   await otherPage.goto("/");
   await expect(
-    otherPage.getByRole("button", { name: "Open your demo ward" }),
+    otherPage.getByRole("button", { name: "Open Hemline" }),
   ).toBeVisible();
   await other.close();
 });
@@ -73,12 +73,12 @@ test("guided playback recovers from a persisted rejection and verifies handoff",
 }) => {
   test.setTimeout(180000);
   await page.goto("/");
-  await page.getByRole("button", { name: "Open your demo ward" }).click();
+  await page.getByRole("button", { name: "Open Hemline" }).click();
   await page.getByRole("button", { name: "New request", exact: true }).click();
-  await page.getByLabel("Demo controls").click();
-  await page.getByLabel("Demo mode").selectOption("guided");
+  await page.getByLabel("Session controls").click();
+  await page.getByLabel("Session mode").selectOption("guided");
   await page.getByLabel("Failure scenario").selectOption("rejection");
-  await page.getByLabel("Demo controls").click();
+  await page.getByLabel("Session controls").click();
   await page
     .getByRole("button", { name: "Prepare a transfer request" })
     .click();
@@ -108,7 +108,7 @@ test("receiving delay requires interpretation confirmation and assignment reconc
 }) => {
   test.setTimeout(180000);
   await page.goto("/");
-  await page.getByRole("button", { name: "Open your demo ward" }).click();
+  await page.getByRole("button", { name: "Open Hemline" }).click();
   await page.getByRole("button", { name: "New request", exact: true }).click();
   await page
     .getByRole("button", { name: "Prepare a transfer request" })

@@ -34,6 +34,12 @@ Not yet externally verified: hosted Supabase/Render, final 48-case rerun after t
 
 This is a synthetic hackathon prototype, not a hospital deployment. Do not enter real patient information. Local fixture checks do not establish live agent quality.
 
+### Current audit corrections — 2026-10-11
+
+Cancelled transfers now reject resume/takeover. Collected or arrived transfers require an acknowledged staff-resolution note before coordinator resume; physical state and porter are retained. Unresolved requests produce clarification. The status/voice dock follows current persisted state, and HTTP outcomes (including rejections) return a trace ID. Missing readiness appears in the attention count. Output allowance is 600 tokens within the 1,000-token ceiling; reservations use measured input plus a safety margin.
+
+Verified: 58 deterministic/integration tests; all six browser tests passed during the fix sequence, followed by four focused final-code browser checks; typecheck/lint/build; local process restart preserving transfers/events/receipts/paused time. Guided real-model rejection recovery completed under the $0.25 cap at estimated $0.2314224. The latest full evaluation scored 46/48 (95.8%): two provider connection/timeout failures, followed by six passing targeted reruns after connection-retry handling. Final dispatch/output optimizations passed the guided-cap journey; a full 48-case rerun after those last optimizations remains pending within a new testing budget. Actual microphone/audio and hosted-worker restart are unverified. Render worker setup requires account sign-in; a Vercel page alone is not an operational worker.
+
 ## Verification
 
 ```bash
@@ -94,3 +100,5 @@ Vercel Supabase integration: `POSTGRES_URL` is accepted when `DATABASE_URL` is u
 If hosted PostgreSQL reports `SELF_SIGNED_CERT_IN_CHAIN`, set `DATABASE_CA_CERT` to the PEM certificate downloaded from Supabase Database Settings. Hemline verifies both the certificate chain and database hostname; do not disable TLS verification.
 
 Public onboarding requires Turnstile and anonymous authentication. There is no hourly per-IP creation quota. Existing signed-in sessions reopen their workspace; ownership isolation, command rate limits and model spending caps remain enforced. The interface uses plain patient-transport language and keeps a brief fictional-records notice.
+
+Audit corrections: cancelled transfers are terminal; post-collection resume records an acknowledged staff resolution while retaining the porter. Operational voice/status summaries follow committed state. Unresolved requests receive clarification. Tracing records HTTP outcomes and committed events across workspaces; response trace IDs support readback. Verification results are recorded locally until final checks finish.

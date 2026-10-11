@@ -1,3 +1,4 @@
+import { trace, span, setTraceOutput } from "neatlogs";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { createHash } from "node:crypto";
@@ -34,7 +35,12 @@ import {
   DomainError,
   findTransfer,
 } from "@/lib/domain";
-import { fixtureMode, shutdownTelemetry, drainTelemetry } from "@/lib/agent";
+import {
+  client,
+  fixtureMode,
+  shutdownTelemetry,
+  drainTelemetry,
+} from "@/lib/agent";
 import { tick } from "@/lib/worker";
 export const runtime = "nodejs";
 // Vercel allows the bounded 90-second agent activation plus database/export overhead.
@@ -130,7 +136,10 @@ async function handle(req: NextRequest) {
       const owner = `test-${hash(name)}`;
       const w = await resetLocalTestWard(owner, name);
       const response = testForm
-        ? NextResponse.redirect(new URL("/", req.url), 303)
+        ? NextResponse.redirect(
+            new URL("/", `${req.nextUrl.protocol}//${req.headers.get("host")}`),
+            303,
+          )
         : NextResponse.json(w);
       response.cookies.set("hemline_session", signSession(owner, w.id), {
         httpOnly: true,
@@ -414,7 +423,51 @@ async function handle(req: NextRequest) {
 }
 async function route(req: NextRequest) {
   try {
-    return await handle(req);
+    if (
+      !process.env.NEATLOGS_API_KEY ||
+      req.method !== "POST" ||
+      req.nextUrl.pathname.includes("/internal/")
+    )
+      return await handle(req);
+    await client();
+    let correlation = "hemline-unowned-command-attempts";
+    try {
+      const identity = session(req);
+      const state = await readWard(identity.id, identity.owner);
+      correlation = state.testSessionId || state.id;
+    } catch {}
+    let response: NextResponse | undefined;
+    await trace(
+      {
+        name: "hemline-http-command",
+        kind: "WORKFLOW",
+        sessionId: correlation,
+      },
+      async (active) => {
+        const outcome = await span(
+          {
+            name: "http_command_attempt",
+            kind: "TOOL",
+            toolName: "http_command_attempt",
+            captureOutput: true,
+          },
+          async () => {
+            response = await handle(req);
+            response.headers.set(
+              "x-hemline-trace-id",
+              active.spanContext().traceId,
+            );
+            return {
+              route: req.nextUrl.pathname,
+              status: response.status,
+              accepted: response.ok,
+            };
+          },
+        )();
+        setTraceOutput(outcome);
+      },
+    );
+    return response!;
   } finally {
     // Serverless instances can freeze after the response; export ended spans first.
     if (process.env.VERCEL && req.method === "POST")

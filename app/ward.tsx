@@ -191,9 +191,12 @@ export default function Ward() {
     setListening(true);
     rec.start();
   }
-  const lastSummary = ward?.runs
-    .filter((r) => r.status === "done")
-    .at(-1)?.summary;
+  const lastSummary =
+    selected === "new"
+      ? "Describe a new transport request."
+      : t
+        ? `${t.phase} · ${t.control.toLowerCase()}. ${t.nextAction}`
+        : ward?.runs.filter((r) => r.status === "done").at(-1)?.summary;
   useEffect(() => {
     if (voice && lastSummary && "speechSynthesis" in window) {
       speechSynthesis.cancel();
@@ -523,6 +526,7 @@ export default function Ward() {
                     tr.phase !== "COMPLETED" &&
                     (tr.control !== "ACTIVE" ||
                       tr.phase === "DRAFT" ||
+                      !tr.requirements.every((r) => tr.confirmations[r]) ||
                       (tr.pickupDue !== null &&
                         tr.pickupDue < ward.now &&
                         tr.phase === "ASSIGNED"))),
@@ -547,7 +551,7 @@ export default function Ward() {
                   <small>{tr.nextAction}</small>
                   <small>
                     Owner: {roleNames[tr.owner]} · Pickup{" "}
-                    {tr.pickupDue
+                    {tr.pickupDue && tr.phase === "ASSIGNED"
                       ? `due ${clock(tr.pickupDue)} (simulation)`
                       : "not scheduled"}
                   </small>
@@ -621,12 +625,24 @@ export default function Ward() {
               <p className="focus-next">{t.nextAction}</p>
               <p className="fine">
                 Transfer {t.id.slice(0, 8)} ·{" "}
-                {t.pickupDue
+                {t.pickupDue && t.phase === "ASSIGNED"
                   ? `Pickup due ${clock(t.pickupDue)} simulation time`
                   : "Pickup not scheduled"}{" "}
                 · ETA unavailable
               </p>
               <p className="fine">Next action owner · {roleNames[t.owner]}</p>
+              {t.offer?.status === "accepted" && (
+                <p className="fine">
+                  Transport porter ·{" "}
+                  {ward.staff.find((s) => s.id === t.offer?.porterId)?.name ||
+                    "Assigned porter"}
+                </p>
+              )}
+              {t.safeResolution && (
+                <p className="fine">
+                  Staff resolution · {t.safeResolution.note}
+                </p>
+              )}
               <div className="requirements">
                 {t.requirements.map((r) => (
                   <span
@@ -856,7 +872,23 @@ export default function Ward() {
                   {["PAUSED", "ESCALATED"].includes(t.control) && (
                     <button
                       className="secondary"
-                      onClick={() => void act("RESUME")}
+                      onClick={() => {
+                        if (["COLLECTED", "ARRIVED"].includes(t.phase)) {
+                          const resolution = window.prompt(
+                            "Describe the staff-agreed safe resolution. Confirm that the assigned porter and receiving team agree before resuming.",
+                          );
+                          if (
+                            resolution &&
+                            window.confirm(
+                              "Acknowledge that staff agreed to this safe resolution?",
+                            )
+                          )
+                            void act("RESUME", {
+                              resolution,
+                              acknowledged: true,
+                            });
+                        } else void act("RESUME");
+                      }}
                     >
                       Resume coordination
                     </button>

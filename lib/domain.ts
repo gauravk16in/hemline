@@ -83,6 +83,7 @@ export interface Transfer {
   nextAction: string;
   modelCalls: number;
   pickupDue: number | null;
+  safeResolution?: { actor: Actor; note: string; at: number; revision: number };
 }
 export const updateSchema = z
   .object({
@@ -455,8 +456,8 @@ export function command(
       "Request changed. Reload before acting.",
     );
   if (
-    ["CANCELLED", "ESCALATED"].includes(t.control) &&
-    !["RESUME", "TAKEOVER"].includes(c.type)
+    t.control === "CANCELLED" ||
+    (t.control === "ESCALATED" && !["RESUME", "TAKEOVER"].includes(c.type))
   )
     throw new DomainError("CONTROL", "Transfer is not active");
   const o = t.offer;
@@ -761,6 +762,32 @@ export function command(
       requireRole(actor, ["coordinator"]);
       if (t.control === "CANCELLING")
         throw new DomainError("STATE", "Cannot bypass cancellation");
+      if (["COLLECTED", "ARRIVED"].includes(t.phase)) {
+        const note = z
+          .string()
+          .trim()
+          .min(10)
+          .max(500)
+          .safeParse(c.payload.resolution);
+        if (!note.success || c.payload.acknowledged !== true)
+          throw new DomainError(
+            "SAFE_RESOLUTION",
+            "Record the staff-agreed safe resolution and acknowledge it before resuming transport",
+          );
+        t.safeResolution = {
+          actor,
+          note: note.data,
+          at: w.now,
+          revision: t.revision,
+        };
+        event(
+          w,
+          `Staff safe resolution acknowledged: ${note.data}`,
+          actor,
+          t,
+          source,
+        );
+      }
       t.control = "ACTIVE";
       break;
   }

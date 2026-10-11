@@ -18,7 +18,7 @@ test("ward map selects the encounter, switches views, and submits reviewed text"
   });
   await page.goto("/");
   const canvas = await page
-    .getByRole("region", { name: "Interactive ward map" })
+    .getByRole("region", { name: "Interactive hospital map" })
     .boundingBox();
   const viewport = page.viewportSize()!;
   expect(canvas).toMatchObject({
@@ -39,7 +39,7 @@ test("ward map selects the encounter, switches views, and submits reviewed text"
   ).toBeVisible();
   await page.getByRole("button", { name: "Map", exact: true }).click();
   await expect(
-    page.getByRole("region", { name: "Interactive ward map" }),
+    page.getByRole("region", { name: "Interactive hospital map" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Send", exact: true }).click();
   expect(message).toMatchObject({ transferId: null });

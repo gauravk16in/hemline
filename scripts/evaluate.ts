@@ -222,7 +222,7 @@ for (const scenario of cases.filter(
       JSON.stringify(
         {
           model: process.env.OPENAI_MODEL || "claude-sonnet-4.6",
-          promptVersion: "2",
+          promptVersion: "7",
           results: rows,
         },
         null,
