@@ -53,7 +53,7 @@ const clock = (at: number) =>
     timeZone: "Asia/Kolkata",
   }).format(at);
 const roleNames: Record<Role, string> = {
-  nurse: "Ward nurse",
+  nurse: "Nurse",
   porter: "Porter",
   receiving: "Receiving team",
   coordinator: "Coordinator",
@@ -215,18 +215,18 @@ export default function Ward() {
         </div>
         <div className="welcome-grid">
           <section>
-            <p className="eyebrow">HOSPITAL COORDINATION · SYNTHETIC SANDBOX</p>
+            <p className="eyebrow">PATIENT TRANSPORT, COORDINATED</p>
             <h1>
-              Every request.
+              Patient transport.
               <br />
-              Every dependency.
+              Less chasing.
               <br />
-              <span>Every handoff.</span>
+              <span>Clear next steps.</span>
             </h1>
             <p className="intro">
-              One shared picture of the work between a ward request and a
-              verified arrival. Explore a complete transfer, including the
-              moments when plans change.
+              Hemline helps nurses, porters, and receiving teams arrange patient
+              transport. Ask for a transfer, confirm readiness, and see who is
+              responsible at each step—from pickup to confirmed arrival.
             </p>
             <button
               className="primary"
@@ -235,7 +235,7 @@ export default function Ward() {
                 void post("sandbox", { captchaToken: captcha || null })
               }
             >
-              Open your demo ward <ArrowRight size={18} />
+              Open Hemline <ArrowRight size={18} />
             </button>
             {sitekey && (
               <>
@@ -252,7 +252,8 @@ export default function Ward() {
               </>
             )}
             <p className="fine">
-              Your own isolated ward · No real patient information
+              Try “Arrange transport for Bed 18 to Radiology.” Patient records
+              are fictional; do not enter real patient information.
             </p>
             {error && (
               <p role="alert" className="error">
@@ -263,21 +264,29 @@ export default function Ward() {
           <section className="preview">
             <div className="preview-top">
               <span className="live-dot" />
-              WARD 03 <span>13:40 IST</span>
+              HOW HEMLINE WORKS
             </div>
-            <h2>From request to handoff</h2>
+            <h2>Ask. Confirm. Track.</h2>
             {[
-              ["01", "Understand", "Resolve patient, destination, and intent."],
+              [
+                "01",
+                "Understand",
+                "Tell Hemline who needs transport and where they need to go.",
+              ],
               [
                 "02",
                 "Coordinate",
-                "Confirm readiness. Find an eligible porter.",
+                "Confirm the patient and destination are ready. Hemline offers the request to an available porter.",
               ],
-              ["03", "Recover", "Handle rejection and destination delays."],
+              [
+                "03",
+                "Recover",
+                "If a porter declines or a destination is delayed, Hemline helps arrange the next step.",
+              ],
               [
                 "04",
                 "Verify",
-                "Confirm arrival at destination and receiving-team handoff.",
+                "Track pickup and arrival. The receiving team confirms receipt before the transfer is complete.",
               ],
             ].map(([n, title, description]) => (
               <div className="preview-step" key={n}>
@@ -289,8 +298,8 @@ export default function Ward() {
               </div>
             ))}
             <div className="preview-footer">
-              <ShieldCheck size={18} /> Human confirmations. Evidence-backed
-              outcomes.
+              <ShieldCheck size={18} /> Staff confirm the decisions. Hemline
+              keeps everyone informed.
             </div>
           </section>
         </div>
@@ -332,12 +341,10 @@ export default function Ward() {
         <Link className="live-brand" href="/" aria-label="Hemline home">
           <Activity size={22} /> Hemline
         </Link>
-        <div className="ward-title">
-          General Ward <span>SYNTHETIC DEMO</span>
-        </div>
+        <div className="ward-title">Patient transport</div>
         <div className="header-controls">
           <span className="live-pill">
-            <i /> {ward.paused ? "CLOCK PAUSED" : "WARD LIVE"}
+            <i /> {ward.paused ? "CLOCK PAUSED" : "LIVE"}
           </span>
           <span
             className={`sync-age ${realNow - lastSynced > 10000 ? "stale" : ""}`}
@@ -368,15 +375,15 @@ export default function Ward() {
             ))}
           </select>
           <details className="settings-popover">
-            <summary aria-label="Demo controls">
+            <summary aria-label="Session controls">
               <Clock3 size={18} />
             </summary>
             <div className="settings-body">
-              <h2>Demo controls</h2>
+              <h2>Session controls</h2>
               <label htmlFor="mode">Staff playback</label>
               <select
                 id="mode"
-                aria-label="Demo mode"
+                aria-label="Session mode"
                 value={ward.mode}
                 onChange={(e) =>
                   void post("sandbox/playback", { mode: e.target.value })
@@ -449,15 +456,15 @@ export default function Ward() {
           </details>
         </div>
       </header>
-      <h1 className="sr-only">Keep the ward moving.</h1>
-      <nav className="live-rail" aria-label="Ward navigation">
+      <h1 className="sr-only">Hemline patient transport</h1>
+      <nav className="live-rail" aria-label="Hemline navigation">
         <button
           aria-label="Map"
           aria-pressed={view === "map"}
           onClick={() => setView("map")}
         >
           <Activity size={19} />
-          <span>Ward</span>
+          <span>Map</span>
         </button>
         <button
           aria-label="Transfers"

@@ -7,7 +7,6 @@ import {
   resetLocalTestWard,
   readWard,
   health,
-  admission,
   budgetDiagnostics,
 } from "@/lib/store";
 import {
@@ -151,13 +150,6 @@ async function handle(req: NextRequest) {
           return NextResponse.json(await readWard(existing.id, existing.owner));
         } catch {}
       }
-      if (!isLocalDemo())
-        await admission(
-          hash(
-            req.headers.get("x-forwarded-for")?.split(",").at(-1)?.trim() ||
-              "local",
-          ),
-        );
       const owner = await provisionIdentity(
         typeof body.captchaToken === "string" ? body.captchaToken : null,
         idem,

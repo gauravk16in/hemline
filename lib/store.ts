@@ -362,37 +362,6 @@ export async function settle(key: string, actual: number) {
     );
   });
 }
-export async function admission(ipHash: string) {
-  const b = await backend();
-  return b.transaction(async (db) => {
-    await db.query(
-      "insert into hemline_admission(ip_hash) values($1) on conflict do nothing",
-      [ipHash],
-    );
-    const row = (
-      await db.query<{ starts: number[] }>(
-        "select starts from hemline_admission where ip_hash=$1 for update",
-        [ipHash],
-      )
-    ).rows[0];
-    const starts = row.starts.filter((at) => at > Date.now() - 3600000);
-    if (starts.length >= 2) {
-      const retryAt = Math.min(...starts) + 3600000;
-      const minutes = Math.max(1, Math.ceil((retryAt - Date.now()) / 60000));
-      throw new DomainError(
-        "RATE_LIMIT",
-        `Demo creation limit reached (two attempts per hour). Retry in ${minutes} minute${minutes === 1 ? "" : "s"}. Existing wards remain available.`,
-        429,
-      );
-    }
-    starts.push(Date.now());
-    await db.query("update hemline_admission set starts=$2 where ip_hash=$1", [
-      ipHash,
-      JSON.stringify(starts),
-    ]);
-  });
-}
-
 export async function budgetDiagnostics() {
   const b = await backend();
   const global = await b.db.query(

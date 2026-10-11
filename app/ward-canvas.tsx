@@ -32,13 +32,13 @@ export default function WardCanvas({
       transfer.phase,
     );
   return (
-    <section className="ward-scene" aria-label="Interactive ward map">
+    <section className="ward-scene" aria-label="Interactive hospital map">
       <div className="ward-art">
         <svg
           className="floorplan"
           viewBox="0 0 2750 1536"
           role="img"
-          aria-label="Synthetic ward floor plan with encounter-linked interactive bed overlays"
+          aria-label="Hospital floor plan with interactive patient beds"
         >
           <image
             href="/images/hemline-ward-room.png"

@@ -92,3 +92,5 @@ Start with an isolated hosted test database and provisioning disabled; then veri
 Vercel Supabase integration: `POSTGRES_URL` is accepted when `DATABASE_URL` is unset. No database credentials need to be copied into Git or client code. Explicit `DATABASE_URL` takes precedence. Hosted integration variables also disable local test-reset endpoints.
 
 If hosted PostgreSQL reports `SELF_SIGNED_CERT_IN_CHAIN`, set `DATABASE_CA_CERT` to the PEM certificate downloaded from Supabase Database Settings. Hemline verifies both the certificate chain and database hostname; do not disable TLS verification.
+
+Public onboarding requires Turnstile and anonymous authentication. There is no hourly per-IP creation quota. Existing signed-in sessions reopen their workspace; ownership isolation, command rate limits and model spending caps remain enforced. The interface uses plain patient-transport language and keeps a brief fictional-records notice.
