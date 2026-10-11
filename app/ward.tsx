@@ -992,7 +992,7 @@ export default function Ward() {
             rows={1}
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder="Ask Hemline or give a ward update…"
+            placeholder="Ask Hemline or give a staff update…"
           />
           <button
             className="voice-send"
