@@ -23,7 +23,7 @@ Hemline brings nurses, porters, and receiving teams into one traceable workflow 
 </div>
 
 > [!IMPORTANT]
-> **A working prototype, not a clinical system.** All patients, staff, and messages in the demo are fictional. Hemline has not been validated for real hospital deployment. **Do not enter real patient information.**
+> **Please don't put real patient data.** All patients, staff, and messages in the demo are fictional. Hemline has not been validated for real hospital deployment. **Do not enter real patient information.**
 
 ---
 
@@ -36,7 +36,7 @@ None of those is necessarily a transport problem. **They're coordination gaps.**
 Hemline is an experiment in closing those gaps: it helps interpret staff messages, surfaces the next responsible action, proposes changes when plans shift, and records the evidence behind each transition.
 
 <div align="center">
-  <img src="public/images/image.png" alt="Illustrated hospital ward scene used as the visual foundation of Hemline's interactive ward board" width="900" />
+  <img src="public/images/image.png" alt="Hemline's interactive ward board" width="900" />
   <sub>The illustrated ward scene under Hemline's interactive bed overlays — not live staff-position tracking.</sub>
 </div>
 
