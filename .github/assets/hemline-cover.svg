@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="480" viewBox="0 0 1440 480" role="img" aria-labelledby="title desc">
+<title id="title">Hemline — every transfer, coordinated</title>
+<desc id="desc">A luminous teal coordination thread connects a nurse, a porter, and a receiving department across an illustrated workflow.</desc>
+<defs>
+  <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#141A23"/><stop offset="1" stop-color="#1D2E35"/></linearGradient>
+  <linearGradient id="aqua" x1="0" x2="1"><stop stop-color="#67D7C7"/><stop offset="1" stop-color="#C9FFF0"/></linearGradient>
+  <pattern id="grid" width="34" height="34" patternUnits="userSpaceOnUse"><path d="M34 0H0V34" fill="none" stroke="#B6DBD5" stroke-opacity=".055"/></pattern>
+  <filter id="glow" x="-50%" y="-100%" width="200%" height="300%"><feGaussianBlur stdDeviation="9"/></filter>
+  <filter id="shadow" x="-25%" y="-40%" width="150%" height="190%"><feDropShadow dx="0" dy="11" stdDeviation="14" flood-color="#050D12" flood-opacity=".38"/></filter>
+</defs>
+<rect width="1440" height="480" rx="24" fill="url(#bg)"/>
+<rect width="1440" height="480" rx="24" fill="url(#grid)"/>
+<circle cx="1260" cy="4" r="320" fill="#67D7C7" opacity=".045"/>
+<circle cx="125" cy="470" r="250" fill="#67D7C7" opacity=".035"/>
+<g font-family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">
+<g transform="translate(72 62)">
+  <rect x="0" y="3" width="10" height="10" rx="5" fill="#67D7C7"/>
+  <text x="22" y="14" font-size="15" font-weight="700" letter-spacing="3" fill="#A9EADF">HEMLINE / HOSPITAL OPERATIONS</text>
+  <text y="88" font-size="60" font-weight="750" letter-spacing="-2.6" fill="#F3F8F8">Every transfer,</text>
+  <text y="154" font-size="60" font-weight="750" letter-spacing="-2.6" fill="url(#aqua)">coordinated.</text>
+  <text y="198" font-size="20" fill="#B5C4CC">From a nurse's request to a verified handoff.</text>
+</g>
+<path d="M160 364 H1280" stroke="#67D7C7" stroke-width="16" opacity=".17" filter="url(#glow)"/>
+<path d="M160 364 H1280" stroke="url(#aqua)" stroke-width="3.5" stroke-linecap="round"/>
+<g filter="url(#shadow)">
+ <rect x="98" y="298" width="305" height="126" rx="17" fill="#242E39" stroke="#4D6B6E" stroke-opacity=".8"/>
+ <rect x="567" y="298" width="305" height="126" rx="17" fill="#242E39" stroke="#4D6B6E" stroke-opacity=".8"/>
+ <rect x="1036" y="298" width="305" height="126" rx="17" fill="#242E39" stroke="#4D6B6E" stroke-opacity=".8"/>
+</g>
+<g>
+ <circle cx="133" cy="364" r="24" fill="#163C3D" stroke="#67D7C7" stroke-width="2"/>
+ <path d="M121 364h24M133 352v24" stroke="#B9F8EB" stroke-width="3.6" stroke-linecap="round"/>
+ <text x="172" y="338" fill="#9CABB7" font-size="14" letter-spacing="1">01 · REQUEST</text>
+ <text x="172" y="370" fill="#F3F8F8" font-size="22" font-weight="700">Bed 18 → Radiology</text>
+ <text x="172" y="397" fill="#A8C0C8" font-size="15">Nurse confirms readiness</text>
+ <circle cx="602" cy="364" r="24" fill="#163C3D" stroke="#67D7C7" stroke-width="2"/>
+ <path d="m591 364 7 7 15-16" stroke="#B9F8EB" stroke-width="3.7" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+ <text x="641" y="338" fill="#9CABB7" font-size="14" letter-spacing="1">02 · COORDINATE</text>
+ <text x="641" y="370" fill="#F3F8F8" font-size="22" font-weight="700">Porter assignment</text>
+ <text x="641" y="397" fill="#A8C0C8" font-size="15">Eligible, accepted, tracked</text>
+ <circle cx="1071" cy="364" r="24" fill="#163C3D" stroke="#67D7C7" stroke-width="2"/>
+ <path d="m1060 364 7 7 15-16" stroke="#B9F8EB" stroke-width="3.7" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+ <text x="1110" y="338" fill="#9CABB7" font-size="14" letter-spacing="1">03 · VERIFY</text>
+ <text x="1110" y="370" fill="#F3F8F8" font-size="22" font-weight="700">Receiving handoff</text>
+ <text x="1110" y="397" fill="#A8C0C8" font-size="15">Complete only on receipt</text>
+</g>
+<g fill="#67D7C7">
+ <circle cx="461" cy="364" r="6"/><circle cx="929" cy="364" r="6"/>
+</g>
+</g>
+</svg>
