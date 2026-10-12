@@ -36,7 +36,7 @@ None of those is necessarily a transport problem. **They're coordination gaps.**
 Hemline is an experiment in closing those gaps: it helps interpret staff messages, surfaces the next responsible action, proposes changes when plans shift, and records the evidence behind each transition.
 
 <div align="center">
-  <img src="public/images/hemline-ward-room.png" alt="Illustrated hospital ward scene used as the visual foundation of Hemline's interactive ward board" width="900" />
+  <img src="public/images/image.png" alt="Illustrated hospital ward scene used as the visual foundation of Hemline's interactive ward board" width="900" />
   <sub>The illustrated ward scene under Hemline's interactive bed overlays — not live staff-position tracking.</sub>
 </div>
 
