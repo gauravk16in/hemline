@@ -1,46 +1,240 @@
-# Hemline
+<div align="center">
 
-**Hospital coordination, from request to verified handoff.**
+<img src=".github/assets/hemline-cover.svg" alt="Hemline — Every transfer, coordinated" width="100%" />
 
-Hemline interprets transfer goals and messy staff replies, tracks readiness, recovers from porter rejection and destination delays, and requires receiving-team acknowledgement before completion.
+<br />
+
+**Patient transport isn't just movement. It's coordination.**
+
+Hemline brings nurses, porters, and receiving teams into one traceable workflow — from the first request to the final, verified handoff.
+
+<br />
+
+[**Try the live demo →**](https://hemline-three.vercel.app/) &nbsp;·&nbsp; [Explore the code](https://github.com/gauravk16in/hemline) &nbsp;·&nbsp; [How it works](#how-hemline-works)
+
+<br />
+
+![Next.js](https://img.shields.io/badge/Next.js-16-141A23?style=flat-square&logo=nextdotjs)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Durable%20state-336791?style=flat-square&logo=postgresql&logoColor=white)
+![Neatlogs](https://img.shields.io/badge/Neatlogs-Tracing-177A74?style=flat-square)
+![License](https://img.shields.io/badge/License-MIT-67D7C7?style=flat-square)
+
+</div>
+
+> [!IMPORTANT]
+> **A working prototype, not a clinical system.** All patients, staff, and messages in the demo are fictional. Hemline has not been validated for real hospital deployment. **Do not enter real patient information.**
+
+---
+
+## The problem: a transfer can fail between the conversations
+
+A nurse asks for a porter. The receiving department is running late. An offer goes unanswered. Somebody calls again, and somebody else assumes the patient is already on the way.
+
+None of those is necessarily a transport problem. **They're coordination gaps.**
+
+Hemline is an experiment in closing those gaps: it helps interpret staff messages, surfaces the next responsible action, proposes changes when plans shift, and records the evidence behind each transition.
+
+<div align="center">
+  <img src="public/images/hemline-ward-room.png" alt="Illustrated hospital ward scene used as the visual foundation of Hemline's interactive ward board" width="900" />
+  <sub>The illustrated ward scene under Hemline's interactive bed overlays — not live staff-position tracking.</sub>
+</div>
+
+## How Hemline works
+
+| | What happens | Why it matters |
+|:--|:--|:--|
+| **01 · Ask** | A nurse requests a transfer in everyday language. Hemline resolves the patient and prepares a draft. | No elaborate dispatch form to learn. |
+| **02 · Confirm** | The nurse and receiving team provide the required readiness evidence. | A request doesn't become a dispatch just because an AI says so. |
+| **03 · Coordinate** | The agent checks current porter eligibility, issues an offer, and waits for acceptance. | Staff availability and explicit acceptance stay authoritative. |
+| **04 · Adapt** | A decline, cancellation, or department delay triggers a guarded recovery or a proposal for approval. | A changed plan doesn't silently become a completed action. |
+| **05 · Verify** | Collection, arrival, and receiving acknowledgement are recorded. | **Completed** means a verified handoff, not merely an ETA. |
+
+### A transfer, end to end
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Nurse
+    participant H as Hemline
+    participant S as State & safety checks
+    actor Porter
+    actor Receiving as Receiving team
+
+    Nurse->>H: "Arrange Bed 18 to Radiology"
+    H->>S: Resolve encounter + create draft
+    S-->>Nurse: Confirm patient-bound request
+    Nurse->>S: Confirm request + readiness
+    Receiving->>S: Confirm destination readiness
+    H->>S: Check eligible porters
+    H->>Porter: Offer transport
+    Porter-->>S: Accept offer
+    S-->>H: Assignment recorded
+    Porter->>S: Collected → Arrived
+    Receiving->>S: Acknowledge handoff
+    S-->>H: COMPLETED
+```
+
+*This is a representative synthetic workflow. Real staff positions are not tracked.*
+
+### When the plan changes
+
+A good coordinator doesn't just handle the happy path.
+
+For example, suppose a nurse starts **Bed 18 → Radiology**, then interrupts: *“Cancel that. Bed 21 needs CT instead.”* Hemline can pause the old dispatch, prepare a replacement, and request nurse confirmation. A stale acceptance from the original porter is rejected rather than reviving the cancelled transfer.
+
+```mermaid
+flowchart TD
+    A["Bed 18 → Radiology<br/>offer pending"] --> B["Nurse requests replacement"]
+    B --> C["Pause dispatch + propose change"]
+    C --> D{"Nurse confirms?"}
+    D -- No --> E["Keep current state / clarify"]
+    D -- Yes --> F["Cancel old transfer"]
+    F --> G["Bed 21 → CT<br/>new draft, new readiness"]
+    F --> H["Late acceptance for old offer"]
+    H --> I["Rejected + recorded"]
+    G --> J["Confirm readiness + new porter offer"]
+    J --> K["Porter accepts"]
+    K --> L["Collect → arrive → receiving handoff"]
+    style I fill:#34262a,stroke:#ce8589,color:#ffffff
+    style L fill:#183a37,stroke:#67d7c7,color:#ffffff
+```
+
+The same principle applies to a scanner delay: Hemline can interpret *“Scanner delayed 15 minutes”*, record a **pending** update, and **propose** a reschedule. **An authorized nurse still confirms the schedule change.** It isn't applied blindly.
+
+## What makes it an agent — and what keeps it accountable
+
+Hemline uses an OpenAI-compatible model/tool interface to interpret messy language, resolve references, choose permitted tools, ask follow-up questions, and replan after tool results.
+
+It **doesn't** let the model decide whether a transfer is officially complete.
+
+| Agent can… | Backend must verify… |
+|---|---|
+| Interpret “Bed 18 needs Radiology” | Patient identity and active transfer |
+| Suggest eligible porter(s) | Readiness, capability and current availability |
+| React to a late or rejected offer | Revision, offer status, cancellation guard |
+| Interpret a receiving delay | Source-message ownership and confirmation |
+| Narrate the outcome | Committed events and receiving acknowledgement |
+
+**The design rule:** *The agent proposes and coordinates; the state machine enforces.*
+
+## Under the hood
+
+```mermaid
+flowchart LR
+    U["Ward UI<br/>Next.js · React"] --> A["API<br/>Session + role checks"]
+    A --> D[("PostgreSQL<br/>ward state · events · jobs")]
+    A --> Q["Worker / scheduler"]
+    Q --> M["LLM tool loop<br/>OpenAI-compatible"]
+    M --> T["Validated domain tools"]
+    T --> D
+    A --> D
+    M -. "traces + spans" .-> N["Neatlogs"]
+    T -. "tool outcomes" .-> N
+    Q -. "job status" .-> D
+    style U fill:#24363a,stroke:#67d7c7,color:#ffffff
+    style D fill:#24363a,stroke:#67d7c7,color:#ffffff
+    style N fill:#24363a,stroke:#67d7c7,color:#ffffff
+```
+
+**The stack, without the buzzwords:**
+
+- **Interface:** Next.js 16, React 19, TypeScript, an interactive ward canvas, action panels, and a transfer history.
+- **Workflow engine:** explicit transfer phases, role restrictions, readiness requirements, revision checks, idempotent HTTP commands, and recovery paths in `lib/domain.ts`.
+- **Agent:** tool-calling model via an OpenAI-compatible gateway; a deterministic **fixture adapter** is available for local demos.
+- **Persistence:** local PGlite for development or hosted PostgreSQL (including Supabase); ward state, events, receipts, and jobs are stored durably.
+- **Execution:** a worker runs pending agent jobs. Deployment options include Vercel with an external worker, a Render supervisor, or a bounded activity-driven AWS Lambda scheduler.
+- **Observability:** Neatlogs captures model and tool traces to help debug what the agent actually attempted.
+- **Tests:** Vitest, Playwright, and scenario scripts for interruption, stale offers, and recovery.
+
+<details>
+<summary><strong>See the core project structure</strong></summary>
+
+```text
+app/
+  ward.tsx                 # Ward interface and staff interactions
+  ward-canvas.tsx          # Interactive map overlays
+  api/[...path]/route.ts   # API routes and command handling
+lib/
+  agent.ts                # Model tools and agent loop
+  domain.ts               # Authoritative workflow state machine
+  store.ts                # Transactions, jobs and durable storage
+  security.ts             # Sessions, ownership and request checks
+  worker.ts               # Background job processing
+  scheduler.ts            # Bounded scheduler coordination
+supabase/migrations/      # PostgreSQL schema
+aws/lambda_function.py    # Optional activity-driven worker
+tests/                    # Domain and integration tests
+e2e/                      # Browser scenarios
+scripts/                  # Local worker and reproducible tests
+```
+
+</details>
+
+## Try it yourself
+
+**Live:** [hemline-three.vercel.app](https://hemline-three.vercel.app/)
+
+In the demo, open a sandbox and try:
+
+> **Arrange transport for the patient in Bed 18 to Radiology.**
+
+Then switch between **Nurse**, **Receiving team**, and **Porter** to provide the required confirmations. You can track the transfer and its recorded activity on the ward board. Use **guided playback** for labelled simulated staff replies, or **manual** mode to control each action.
+
+For a second scenario, try **Bed 21 → CT**. The clock and staff-response controls are intentionally simulated; the map does not track people in real time. Browser dictation is optional, with text input as the fallback.
 
 ## Run locally
 
+**Requirements:** Node.js **22**, npm.
+
 ```bash
+git clone https://github.com/gauravk16in/hemline.git
+cd hemline
 npm ci
 cp .env.example .env.local
 npm run dev
-# in another terminal
+```
+
+In another terminal:
+
+```bash
 npm run worker:dev
 ```
 
-Open http://127.0.0.1:3000. No credentials are required for the **explicit local fixture adapter** and embedded PostgreSQL. That adapter is deterministic, not an LLM. Configure the Aivar gateway with claude-sonnet-4.6 to use the real chat tool loop and neatlogs to export real traces.
+Visit **http://127.0.0.1:3000**.
 
-Try Bed 18 first. Bed 4 intentionally has a stale reference in another patient's bed history. Manual exploration begins paused. Choose guided playback before confirming a request to activate labelled simulated staff replies. A visitor still confirms the original nurse request and material rescheduling.
+The default local setup uses an embedded PostgreSQL-compatible **PGlite** database and, without `OPENAI_API_KEY`, an explicit deterministic **fixture adapter**. That makes it possible to explore the workflow without spending on model calls. The fixture is **not** a real LLM.
 
-## Ward interface
+<details>
+<summary><strong>Enable the real agent, tracing, or hosted database</strong></summary>
 
-The ward fills the viewport. Patient bays are interactive overlays on the ward scene asset from the user's previous [project](https://github.com/Abhinav-Prabhakar/Warden), reused at the user's request. Hemline keeps its own encounters, state machine, agent tools, database and telemetry. Selecting a bed opens a contextual staff-action panel; history opens from the left rail. The clock menu contains playback, scenario and usage controls. No clinical measurements or medication workflows are imported. Route positions illustrate recorded workflow stages, not tracked staff locations.
+Edit `.env.local`, using `.env.example` as the authoritative template:
 
-The voice dock supports browser dictation with transcript review and optional spoken recorded summaries. Mobile supports horizontal ward exploration and contextual panels; unsupported browsers retain text input. Routes are static; no looping movement implies tracked staff. The attention queue, sync age, readiness evidence and receiving acknowledgement show recorded operational facts. Pickup deadlines are labelled as simulation time and ETA is explicitly unavailable. Live microphone permission and recognition accuracy remain unverified.
+```dotenv
+# Hosted PostgreSQL (optional locally)
+DATABASE_URL=
 
-## Implementation status
+# OpenAI-compatible provider / gateway
+OPENAI_API_KEY=
+OPENAI_BASE_URL=
+OPENAI_MODEL=
+MODEL_API=chat
 
-Implemented: web board, role actions, browser dictation with review, durable PostgreSQL aggregate transactions, offers, destination delays, interpretation proposals, guided staff, controllable clock, isolation, quotas, OpenAI-compatible Claude/neatlogs adapters, worker supervision and Render blueprint.
+# Model/tool tracing (optional for local fixture use)
+NEATLOGS_API_KEY=
 
-Verified externally: Claude gateway text response, Neatlogs diagnostic export/readback, and live agent activations with finalized workflow/tool traces; 47/48 activation cases passed, and the failed delay case passed 3/3 targeted reruns after a source-ID fix.
+# Production deployments also require session/worker secrets
+SESSION_SECRET=
+WORKER_SECRET=
+```
 
-Not yet externally verified: hosted Supabase/Render, final 48-case rerun after the prompt fix, cfo.ai business output, and live browser microphone behavior. The full 48-case suite scored 47/48; a source-ID correction subsequently passed three targeted reruns. A complete rerun after that correction remains a release gate.
+A real model call needs valid provider credentials and sufficient budget. Hosted public sandboxes additionally require the configured authentication and Turnstile protections. **Never commit `.env.local` or credentials.**
 
-This is a synthetic hackathon prototype, not a hospital deployment. Do not enter real patient information. Local fixture checks do not establish live agent quality.
+See [`.env.example`](.env.example), [Vercel configuration](vercel.json), and [worker blueprint](render-worker.yaml) for available configuration.
 
-### Current audit corrections — 2026-10-11
+</details>
 
-Cancelled transfers now reject resume/takeover. Collected or arrived transfers require an acknowledged staff-resolution note before coordinator resume; physical state and porter are retained. Unresolved requests produce clarification. The status/voice dock follows current persisted state, and HTTP outcomes (including rejections) return a trace ID. Missing readiness appears in the attention count. Output allowance is 600 tokens within the 1,000-token ceiling; reservations use measured input plus a safety margin.
-
-Verified: 58 deterministic/integration tests; all six browser tests passed during the fix sequence, followed by four focused final-code browser checks; typecheck/lint/build; local process restart preserving transfers/events/receipts/paused time. Guided real-model rejection recovery completed under the $0.25 cap at estimated $0.2314224. The latest full evaluation scored 46/48 (95.8%): two provider connection/timeout failures, followed by six passing targeted reruns after connection-retry handling. Final dispatch/output optimizations passed the guided-cap journey; a full 48-case rerun after those last optimizations remains pending within a new testing budget. Actual microphone/audio and hosted-worker restart are unverified. Render worker setup requires account sign-in; a Vercel page alone is not an operational worker.
-
-## Verification
+### Tests & verification
 
 ```bash
 npm run typecheck
@@ -50,65 +244,44 @@ npm run test:integration
 npx playwright install chromium
 npm run test:e2e
 npm run build
-# needs configured real provider
-npm run provider:smoke
-npm run eval
 ```
 
-Browser tests require a running development worker. Configure a dedicated test database for hosted integration tests, never the public demo database.
+With a real model and Neatlogs configured, `npm run provider:smoke` and `npm run eval` exercise provider-specific paths. Test against **isolated synthetic data**, never real patient records or a public production database.
 
-## Development notes
+## A bug that made observability matter
 
-Supplemental specifications, development history and generated trace/test evidence are retained locally and excluded from this published source repository. Only the root README is published as Markdown.
+In a preserved receiving-delay test, the agent passed the **wrong source-message ID** to a tool. The backend correctly rejected the call, but the model's reply incorrectly claimed the delay was recorded.
 
-## Hosting
+The trace made the mismatch visible: **what the model said ≠ what the system committed.**
 
-One Render service supervises `next start` and the worker. Supabase supplies hosted PostgreSQL and anonymous authentication. Review `render.yaml` and operations before provisioning. Public creation stays disabled until authentication/CAPTCHA and database access are configured.
+The agent instructions were updated to use the authorized message ID and recover after a rejection. Three matched targeted reruns then recorded the pending destination delay, proposed a reschedule, and waited for nurse confirmation.
 
-MIT license. All seeded patients, staff, and hospital responses are fictional.
+This is **targeted evidence of a repaired path**, not a claim that all model behavior or deployment scenarios have been verified.
 
-Private local demos default to a $1 per-sandbox model allowance (`LOCAL_SANDBOX_MODEL_BUDGET_USD`); public sandboxes retain the $0.25 cap. Both remain subject to the $10 overall model budget. Budget reservations and usage persist across restarts. A transfer paused by a budget refusal can be resumed by switching to Coordinator and selecting Resume coordination after the limit is corrected.
+## Current scope
 
-## Interrupted transfer validation
+**Implemented in the prototype:** patient-bound transfer requests; readiness and receiving confirmations; porter offers and acceptance; cancellation/replacement workflows; delay proposals; explicit receiving handoffs; per-transfer history; role-specific actions; simulated playback; persisted state and agent traces.
 
-Bed 21 → CT is supported alongside Bed 18 → Radiology. A nurse interruption pauses dispatch and produces a replacement proposal. Nurse confirmation cancels the old transfer and creates a new draft with independent readiness. An accepted assignment requires porter cancellation acknowledgement first; collected patients require staff intervention. Late acceptance is rejected, audited and shown in the simulated porter inbox. Deterministic collection/arrival/handoff actions do not consume additional model activations.
+**Not established:** real-hospital clinical validation, live location tracking, measured time/cost savings, universal speech-recognition support, or comprehensive production reliability. A hosted page loading alone does not prove the worker is healthy.
 
-Run `npx tsx scripts/test-interrupted-transfer.ts` with provider and neatlogs credentials to reproduce the isolated in-memory PostgreSQL test. It uses real model calls and trace export; staff confirmations are explicitly scripted. On 2026-10-10 the complete scenario passed with Claude Sonnet 4.6, five activations, estimated cost $0.2202123, trace `b1826c145f143a7d0f4667bdf52a5332`. Authenticated neatlogs readback succeeded. Local evidence is ignored by Git. The preserved baseline showed the old guard already rejected stale acceptance; missing replacement support and rejection audit were the improvements. This targeted run does not establish the 48-case release gate or deployed restart verification.
+Hemline is designed to support people performing hospital operations — **not** to make autonomous clinical decisions.
 
-Prompt v5 compacts model context and records tool arguments. The latest isolated interruption rerun passed at estimated $0.1779987 with trace `065487d6cb5a4d635721a4e487fc6bf7`. 53 deterministic/integration checks passed after the fixes. Broader guided browser findings and preserved failures are recorded in docs/testing.md; a targeted pass does not imply the release suite is complete.
+---
 
-Final local validation (2026-10-11): prompt v6 interrupted-transfer scenario passed with authenticated neatlogs export; 55 domain/integration tests and the full six-test browser suite passed, alongside typecheck, lint and build. Guided rejection recovery and receiving delay both passed with the live provider. Evidence: `evidence/interruption-validation.md` (local, ignored by Git). Public provisioning and the 48-case release evaluation remain pending; latest private guided usage exceeds the public $0.25 cap.
+## Built with care
 
-### Verified stale-acceptance HTTP scenario
+This project explores a simple idea: *the most useful AI in a hospital may be the AI that prevents an important update from disappearing between two people.*
 
-`npx tsx scripts/test-stale-http.ts` first verifies localhost is development with local embedded PostgreSQL and real provider/tracing configured, then resets only the named synthetic test ward. It preserves other wards and global spending. The reset endpoint is disabled for production, public provisioning, and hosted databases. The script exercises authenticated HTTP requests, waits for the real worker/LLM, and saves assertions to `evidence/stale-http-result.json`.
+The ward scene artwork builds on an earlier [Warden project](https://github.com/Abhinav-Prabhakar/Warden); Hemline's transport encounters, workflow engine, agent tools, persistence, and telemetry are its own.
 
-Watch `/test/live` in the local browser while it runs. This read-only development view shows test aliases T-001/T-002, actual UUIDs, statuses and events. The confirmed run persisted all 26 domain events plus real model/tool calls in neatlogs session `hemline-stale-acceptance-test-001` (22 distinct traces, 78 spans, zero trace errors). Samir's delayed acceptance was rejected after cancellation; Leena's replacement completed only after receiving-team handoff. `COMPLETED` is the domain's handoff-complete status. The labelled stale-availability fixture keeps Samir unavailable for the replacement. Staff and patient data remain synthetic; API, persistence, model and telemetry calls are real.
+Made by [Gaurav Kumar](https://github.com/gauravk16in) and contributors.
 
-### Deploy through Vercel GitHub import
+Released under the [MIT License](LICENSE). Contributions and thoughtful feedback are welcome through [GitHub Issues](https://github.com/gauravk16in/hemline/issues).
 
-Import this GitHub repository as a Next.js project, root directory `.`. `vercel.json` selects `npm ci` and `npm run build:web`; Node 22 is selected by `package.json`. The authenticated internal worker endpoint has a 180-second function limit. Its PostgreSQL migration is explicitly included in the serverless function bundle. Completed telemetry is flushed before mutation responses on Vercel.
+<div align="center">
 
-Vercel runs the web/API application. A separate always-running worker calls the authenticated tick endpoint; Vercel does not run `npm start` or the continuous supervisor. Import `render-worker.yaml` as a Render worker blueprint, with `APP_BASE_URL` pointing to the stable Vercel production URL and the same `WORKER_SECRET` configured in both services. Set `REMOTE_WORKER=true` on the worker. If deployment protection is enabled, its automation bypass secret goes only on the worker. The worker does not need database, LLM or neatlogs keys. The original single-service Render deployment remains available in `render.yaml`.
+**Hemline · Every transfer, coordinated.**
 
-Vercel server environment: `DATABASE_URL` (dedicated hosted PostgreSQL / Supabase session pooler), `SESSION_SECRET`, `WORKER_SECRET`, `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`, `MODEL_API`, `NEATLOGS_API_KEY`, model pricing ceilings and existing spending limits. For public provisioning, also set Supabase URL/anon key, Turnstile site key/secret, `APP_BASE_URL` and `PUBLIC_DEMO_ENABLED=true`; enable anonymous auth and register the production hostname with Turnstile. `NEXT_PUBLIC_*` values must be configured before the build. Keep public provisioning disabled until these are verified. Local embedded PostgreSQL and development test/reset routes are unavailable in production.
+[Try the demo](https://hemline-three.vercel.app/) · [Back to top](#the-problem-a-transfer-can-fail-between-the-conversations)
 
-Start with an isolated hosted test database and provisioning disabled; then verify DB health, worker heartbeat, real provider/tracing and owned synthetic test flows before enabling public access. A deployed page alone does not establish agent readiness. Hosted Vercel, worker restart, public onboarding and browser-closure recovery are pending external verification until accounts/services are configured.
-
-Vercel Supabase integration: `POSTGRES_URL` is accepted when `DATABASE_URL` is unset. No database credentials need to be copied into Git or client code. Explicit `DATABASE_URL` takes precedence. Hosted integration variables also disable local test-reset endpoints.
-
-If hosted PostgreSQL reports `SELF_SIGNED_CERT_IN_CHAIN`, set `DATABASE_CA_CERT` to the PEM certificate downloaded from Supabase Database Settings. Hemline verifies both the certificate chain and database hostname; do not disable TLS verification.
-
-Public onboarding requires Turnstile and anonymous authentication. There is no hourly per-IP creation quota. Existing signed-in sessions reopen their workspace; ownership isolation, command rate limits and model spending caps remain enforced. The interface uses plain patient-transport language and keeps a brief fictional-records notice.
-
-Audit corrections: cancelled transfers are terminal; post-collection resume records an acknowledged staff resolution while retaining the porter. Operational voice/status summaries follow committed state. Unresolved requests receive clarification. Tracing records HTTP outcomes and committed events across workspaces; response trace IDs support readback. Verification results are recorded locally until final checks finish.
-
-## Restricted AWS worker (deployed; extended recovery verification pending)
-
-`aws/lambda_function.py` supplies a Python 3.12 Lambda dispatcher/worker in us-east-1. It calls the existing authenticated Vercel tick API; model calls, persistence and neatlogs remain on Vercel. A function-specific IAM role can invoke only `hemline-worker`; no EC2 instance, load balancer, EventBridge, CloudWatch policy or additional VPC is needed. The existing team EC2 instance is untouched.
-
-Configure 256 MB memory, a 900-second timeout, reserved concurrency 2, asynchronous retries 2 and maximum event age 900 seconds. Lambda stores only APP_BASE_URL and WORKER_SECRET in a private deployment configuration file excluded from Git; the hackathon account denies KMS-backed environment updates. Its Function URL uses application bearer authentication; invalid requests never dispatch jobs. Set LAMBDA_WORKER_URL on Vercel only after the endpoint is protected by the deployed handler. Authenticated browser/API activity wakes it; PostgreSQL admission and owner leases prevent competing tick loops. Invocations hand off asynchronously in at most 12 slices, bounded by a two-hour session. Idle sessions stop immediately. Simulation timers use existing paused-clock semantics; Lambda does not poll the model while waiting.
-
-This is activity-driven bounded scheduling, not an unlimited always-on service. Hard session expiry or exhausted asynchronous retries require subsequent authenticated activity to recover; state and job leases persist. Hosted authorization has been verified (403 without a bearer secret, 202 with it), and the Vercel API received a real worker heartbeat. Extended hosted handoff/restart behavior remains to be verified. Health reports a recent worker heartbeat; idle sessions can report worker unavailable after the freshness window until authenticated activity wakes them. Disable via reserved concurrency 0 and clear LAMBDA_WORKER_URL when finished; Lambda does not incur compute while idle. The $25 account allowance is shared and cannot be guaranteed by code alone.
-
-Local scheduler checks: `npm test -- tests/scheduler.test.ts`; `python3 aws/test_lambda.py`.
+</div>
