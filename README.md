@@ -266,22 +266,6 @@ This is **targeted evidence of a repaired path**, not a claim that all model beh
 
 Hemline is designed to support people performing hospital operations — **not** to make autonomous clinical decisions.
 
----
-
-## Built with care
-
-This project explores a simple idea: *the most useful AI in a hospital may be the AI that prevents an important update from disappearing between two people.*
-
-The ward scene artwork builds on an earlier [Warden project](https://github.com/Abhinav-Prabhakar/Warden); Hemline's transport encounters, workflow engine, agent tools, persistence, and telemetry are its own.
-
-Made by [Gaurav Kumar](https://github.com/gauravk16in) and contributors.
-
 Released under the [MIT License](LICENSE). Contributions and thoughtful feedback are welcome through [GitHub Issues](https://github.com/gauravk16in/hemline/issues).
 
-<div align="center">
 
-**Hemline · Every transfer, coordinated.**
-
-[Try the demo](https://hemline-three.vercel.app/) · [Back to top](#the-problem-a-transfer-can-fail-between-the-conversations)
-
-</div>
