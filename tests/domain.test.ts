@@ -40,6 +40,24 @@ function prepared() {
   return { w, t };
 }
 describe("verified transfers", () => {
+  it("names CT in the pickup-to-arrival instruction", () => {
+    const w = seed();
+    const t = createDraft(w, "enc-05", w.now + 1800000, "CT");
+    act(w, t, "CONFIRM_REQUEST", "nurse");
+    for (const requirement of ["nurse", "escort", "receiving"])
+      act(
+        w,
+        t,
+        "CONFIRM_READINESS",
+        requirement === "receiving" ? "receiving" : "nurse",
+        { requirement },
+      );
+    const o = offer(w, t.id, t.revision, "porter-2");
+    act(w, t, "ACCEPT", "porter", { offerId: o.id });
+    act(w, t, "COLLECT", "porter");
+    expect(t.nextAction).toBe("Record arrival at CT");
+    expect(t.phase).toBe("COLLECTED");
+  });
   it("requires independent pickup, arrival, and receiving acknowledgement", () => {
     const { w, t } = prepared();
     const o = offer(w, t.id, t.revision, "porter-1");

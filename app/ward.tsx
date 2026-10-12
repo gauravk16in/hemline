@@ -22,6 +22,11 @@ type Snapshot = State & {
   adapter: "fixture" | "live";
   tracingConfigured: boolean;
 };
+// Keep the destination accurate for transfers saved before the wording fix.
+const nextActionText = (transfer: State["transfers"][number]) =>
+  transfer.nextAction === "Record arrival at radiology"
+    ? `Record arrival at ${transfer.destinationName || "Radiology"}`
+    : transfer.nextAction;
 type SpeechResult = { results: ArrayLike<ArrayLike<{ transcript: string }>> };
 type Recognition = {
   lang: string;
@@ -195,7 +200,7 @@ export default function Ward() {
     selected === "new"
       ? "Describe a new transport request."
       : t
-        ? `${t.phase} · ${t.control.toLowerCase()}. ${t.nextAction}`
+        ? `${t.phase} · ${t.control.toLowerCase()}. ${nextActionText(t)}`
         : ward?.runs.filter((r) => r.status === "done").at(-1)?.summary;
   useEffect(() => {
     if (voice && lastSummary && "speechSynthesis" in window) {
@@ -548,7 +553,7 @@ export default function Ward() {
                   <span>
                     {tr.phase} · {tr.control}
                   </span>
-                  <small>{tr.nextAction}</small>
+                  <small>{nextActionText(tr)}</small>
                   <small>
                     Owner: {roleNames[tr.owner]} · Pickup{" "}
                     {tr.pickupDue && tr.phase === "ASSIGNED"
@@ -622,7 +627,7 @@ export default function Ward() {
                   </span>
                 ))}
               </div>
-              <p className="focus-next">{t.nextAction}</p>
+              <p className="focus-next">{nextActionText(t)}</p>
               <p className="fine">
                 Transfer {t.id.slice(0, 8)} ·{" "}
                 {t.pickupDue && t.phase === "ASSIGNED"

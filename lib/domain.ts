@@ -625,7 +625,7 @@ export function command(
           "Collection requires current accepted assignment and readiness",
         );
       t.phase = "COLLECTED";
-      t.nextAction = "Record arrival at radiology";
+      t.nextAction = `Record arrival at ${t.destinationName || "Radiology"}`;
       schedule(
         w,
         t,
