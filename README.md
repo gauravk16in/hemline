@@ -1,9 +1,3 @@
-<div align="center">
-
-<img src=".github/assets/hemline-cover.svg" alt="Hemline — Every transfer, coordinated" width="100%" />
-
-<br />
-
 **Patient transport isn't just movement. It's coordination.**
 
 Hemline brings nurses, porters, and receiving teams into one traceable workflow — from the first request to the final, verified handoff.
